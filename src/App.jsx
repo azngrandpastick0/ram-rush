@@ -111,9 +111,9 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
   const touchStart = useRef(null);
   const isTouch = isTouchDevice();
 
-  const W = 360,
-    H = 480,
-    PLAYER_Y = 390;
+  const W = 420,
+    H = 560,
+    PLAYER_Y = 460;
   const LANE_X = [W * 0.22, W * 0.5, W * 0.78];
   const JUMP_FRAMES = 28;
   const SLIDE_FRAMES = 28;
@@ -126,7 +126,7 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
       actionTimer: 0,
       obstacles: [],
       frame: 0,
-      speed: 2.2,
+      speed: 1.6,
       spawnTimer: 80,
       score: 0,
       dead: false,
@@ -223,7 +223,7 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
       s.displayX += (targetX - s.displayX) * 0.28;
 
       // speed ramp — starts slower, gentler curve
-      s.speed = 2.2 + Math.min(s.frame / 360, 3.0);
+      s.speed = 1.6 + Math.min(s.frame / 480, 2.2);
 
       // spawn obstacles: block 1-2 lanes, always leave one open
       s.spawnTimer -= 1;
@@ -484,7 +484,7 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
           border: `2px solid ${COLORS.sol}`,
           boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
           width: "100%",
-          maxWidth: 360,
+          maxWidth: 420,
           touchAction: "none",
         }}
       >
