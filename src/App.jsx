@@ -105,11 +105,21 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
   const canvasRef = useRef(null);
   const rafRef = useRef(null);
   const stateRef = useRef(null);
+  const spritesRef = useRef({});
   const [score, setScore] = useState(0);
   const [phase, setPhase] = useState("ready"); // ready | playing | over
   const [finalScore, setFinalScore] = useState(0);
   const touchStart = useRef(null);
   const isTouch = isTouchDevice();
+
+  useEffect(() => {
+    const BASE = import.meta.env.BASE_URL;
+    ["player", "defender"].forEach((name) => {
+      const img = new Image();
+      img.src = `${BASE}sprites/${name}.png`;
+      img.onload = () => { spritesRef.current[name] = img; };
+    });
+  }, []);
 
   const W = 420,
     H = 560,
@@ -288,49 +298,17 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
       s.obstacles.forEach((o) => {
         const ox = LANE_X[o.lane];
         if (o.type === "ground") {
-          // uniformed defender blocking the lane
-          const oy = o.y - 4;
-          // legs
-          ctx.strokeStyle = COLORS.bone;
-          ctx.lineWidth = 4;
-          ctx.beginPath();
-          ctx.moveTo(ox - 6, oy + 8);
-          ctx.lineTo(ox - 6, oy + 20);
-          ctx.moveTo(ox + 6, oy + 8);
-          ctx.lineTo(ox + 6, oy + 20);
-          ctx.stroke();
-          // arms
-          ctx.strokeStyle = COLORS.royal;
-          ctx.lineWidth = 5;
-          ctx.beginPath();
-          ctx.moveTo(ox - 16, oy - 6);
-          ctx.lineTo(ox - 21, oy + 6);
-          ctx.moveTo(ox + 16, oy - 6);
-          ctx.lineTo(ox + 21, oy + 6);
-          ctx.stroke();
-          // jersey torso
-          ctx.fillStyle = COLORS.royal;
-          ctx.fillRect(ox - 12, oy - 8, 24, 18);
-          // number
-          ctx.fillStyle = COLORS.bone;
-          ctx.font = "bold 10px 'IBM Plex Mono', monospace";
-          ctx.textAlign = "center";
-          ctx.fillText("5", ox, oy + 5);
-          // shoulder pads
-          ctx.fillStyle = COLORS.sol;
-          ctx.fillRect(ox - 16, oy - 12, 32, 7);
-          // helmet
-          ctx.fillStyle = COLORS.sol;
-          ctx.beginPath();
-          ctx.ellipse(ox, oy - 18, 9, 8, 0, 0, Math.PI * 2);
-          ctx.fill();
-          // facemask
-          ctx.strokeStyle = COLORS.royalDeep;
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.moveTo(ox - 6, oy - 15);
-          ctx.quadraticCurveTo(ox, oy - 9, ox + 6, oy - 15);
-          ctx.stroke();
+          const defSprite = spritesRef.current.defender;
+          ctx.save();
+          ctx.imageSmoothingEnabled = false;
+          if (defSprite) {
+            ctx.drawImage(defSprite, ox - 32, o.y - 64, 64, 64);
+          } else {
+            // fallback shape if sprite hasn't loaded yet
+            ctx.fillStyle = COLORS.royal;
+            ctx.fillRect(ox - 12, o.y - 36, 24, 36);
+          }
+          ctx.restore();
         } else {
           // spiked football hazard
           const cx = ox,
@@ -391,23 +369,20 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
       }
       if (s.action === "slide") squash = 0.5;
 
+      const playerSprite = spritesRef.current.player;
       ctx.save();
+      ctx.imageSmoothingEnabled = false;
       ctx.translate(rx, ry);
       ctx.scale(1, squash);
-      ctx.fillStyle = COLORS.bone;
-      ctx.beginPath();
-      ctx.ellipse(0, 0, 16, 13, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.ellipse(15, -8, 9, 8, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = COLORS.horn;
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(19, -14);
-      ctx.quadraticCurveTo(28, -18, 25, -6);
-      ctx.quadraticCurveTo(22, 2, 13, -4);
-      ctx.stroke();
+      if (playerSprite) {
+        ctx.drawImage(playerSprite, -32, -56, 64, 64);
+      } else {
+        // fallback shape if sprite hasn't loaded yet
+        ctx.fillStyle = COLORS.bone;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 16, 13, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
       ctx.restore();
 
       if (s.dead) {
