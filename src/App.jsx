@@ -138,6 +138,7 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
       frame: 0,
       speed: 1.6,
       spawnTimer: 80,
+      fieldOffset: 0,
       score: 0,
       dead: false,
     };
@@ -280,6 +281,29 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, W, H);
 
+      // scrolling yard lines — gold, subtle, move with game speed
+      s.fieldOffset = (s.fieldOffset + s.speed) % 80;
+      ctx.strokeStyle = "rgba(255,163,0,0.12)";
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([]);
+      for (let y = s.fieldOffset - 80; y < H; y += 80) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(W, y);
+        ctx.stroke();
+      }
+      // hash marks on each yard line
+      ctx.strokeStyle = "rgba(255,163,0,0.08)";
+      ctx.lineWidth = 1;
+      for (let y = s.fieldOffset - 80; y < H; y += 80) {
+        [W * 0.38, W * 0.62].forEach((hx) => {
+          ctx.beginPath();
+          ctx.moveTo(hx - 8, y);
+          ctx.lineTo(hx + 8, y);
+          ctx.stroke();
+        });
+      }
+
       // lane dividers
       ctx.strokeStyle = "rgba(241,234,217,0.18)";
       ctx.lineWidth = 2;
@@ -310,25 +334,26 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
           }
           ctx.restore();
         } else {
-          // spiked football hazard
-          const cx = ox,
-            cy = o.y - 16,
-            rx = 15,
-            ry = 10;
+          // spiked football hazard — drawn at origin then rotated 45°
+          const cx = ox, cy = o.y - 16;
+          const fRx = 15, fRy = 10;
+          ctx.save();
+          ctx.translate(cx, cy);
+          ctx.rotate(Math.PI / 4);
           // ball body
           ctx.fillStyle = "#6B3A1F";
           ctx.beginPath();
-          ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+          ctx.ellipse(0, 0, fRx, fRy, 0, 0, Math.PI * 2);
           ctx.fill();
           // laces
           ctx.strokeStyle = "rgba(241,234,217,0.85)";
           ctx.lineWidth = 1.5;
           ctx.beginPath();
-          ctx.moveTo(cx - 6, cy);
-          ctx.lineTo(cx + 6, cy);
+          ctx.moveTo(-6, 0);
+          ctx.lineTo(6, 0);
           for (let i = -4; i <= 4; i += 4) {
-            ctx.moveTo(cx + i, cy - 2);
-            ctx.lineTo(cx + i, cy + 2);
+            ctx.moveTo(i, -2);
+            ctx.lineTo(i, 2);
           }
           ctx.stroke();
           // spikes radiating outward
@@ -336,14 +361,11 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
           ctx.fillStyle = "rgba(203,206,212,0.95)";
           for (let i = 0; i < spikeCount; i++) {
             const a = (i / spikeCount) * Math.PI * 2;
-            const ex = cx + Math.cos(a) * rx;
-            const ey = cy + Math.sin(a) * ry;
-            const nx = Math.cos(a),
-              ny = Math.sin(a);
-            const px = -ny,
-              py = nx;
-            const baseW = 3;
-            const len = 8;
+            const ex = Math.cos(a) * fRx;
+            const ey = Math.sin(a) * fRy;
+            const nx = Math.cos(a), ny = Math.sin(a);
+            const px = -ny, py = nx;
+            const baseW = 3, len = 8;
             ctx.beginPath();
             ctx.moveTo(ex - px * baseW, ey - py * baseW);
             ctx.lineTo(ex + px * baseW, ey + py * baseW);
@@ -351,6 +373,7 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
             ctx.closePath();
             ctx.fill();
           }
+          ctx.restore();
         }
       });
 
