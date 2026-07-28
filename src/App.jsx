@@ -139,6 +139,7 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
       speed: 1.6,
       spawnTimer: 80,
       fieldOffset: 0,
+      totalPixels: 0,
       score: 0,
       dead: false,
       dying: false,
@@ -275,22 +276,27 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
         }
       }
 
+      // accumulate distance for yard-line scoring
+      s.totalPixels += s.speed;
+      s.fieldOffset = (s.fieldOffset + s.speed) % 80;
+      const linesSpawned = Math.floor(s.totalPixels / 80);
+
       if (!s.dying) {
-        s.score = Math.floor(s.frame / 6);
+        s.score = linesSpawned;
         setScore(s.score);
       }
 
       // ---- draw ----
       ctx.clearRect(0, 0, W, H);
-      const grad = ctx.createLinearGradient(0, 0, 0, H);
-      grad.addColorStop(0, COLORS.royal);
-      grad.addColorStop(1, COLORS.royalDeep);
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, W, H);
 
-      // scrolling yard lines — gold, subtle, move with game speed
-      s.fieldOffset = (s.fieldOffset + s.speed) % 80;
-      ctx.strokeStyle = "rgba(255,163,0,0.12)";
+      // Alternating green grass stripes (scroll with field)
+      for (let i = 0, y = s.fieldOffset - 80; y < H + 80; y += 80, i++) {
+        ctx.fillStyle = (linesSpawned - i) % 2 === 0 ? "#1E6B1E" : "#267326";
+        ctx.fillRect(0, y, W, 82);
+      }
+
+      // White yard lines
+      ctx.strokeStyle = "rgba(255,255,255,0.55)";
       ctx.lineWidth = 1.5;
       ctx.setLineDash([]);
       for (let y = s.fieldOffset - 80; y < H; y += 80) {
@@ -299,8 +305,9 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
         ctx.lineTo(W, y);
         ctx.stroke();
       }
-      // hash marks on each yard line
-      ctx.strokeStyle = "rgba(255,163,0,0.08)";
+
+      // Hash marks
+      ctx.strokeStyle = "rgba(255,255,255,0.35)";
       ctx.lineWidth = 1;
       for (let y = s.fieldOffset - 80; y < H; y += 80) {
         [W * 0.38, W * 0.62].forEach((hx) => {
@@ -311,8 +318,20 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
         });
       }
 
-      // lane dividers
-      ctx.strokeStyle = "rgba(241,234,217,0.18)";
+      // Yard line numbers on left and right edges
+      ctx.font = "bold 12px 'IBM Plex Mono', monospace";
+      ctx.textAlign = "center";
+      for (let i = 0, y = s.fieldOffset - 80; y < H; y += 80, i++) {
+        const yardNum = linesSpawned - i;
+        if (yardNum > 0) {
+          ctx.fillStyle = "rgba(255,255,255,0.8)";
+          ctx.fillText(`${yardNum}`, W * 0.08, y + 5);
+          ctx.fillText(`${yardNum}`, W * 0.92, y + 5);
+        }
+      }
+
+      // Lane dividers
+      ctx.strokeStyle = "rgba(255,255,255,0.3)";
       ctx.lineWidth = 2;
       ctx.setLineDash([10, 12]);
       const divX1 = (LANE_X[0] + LANE_X[1]) / 2;
