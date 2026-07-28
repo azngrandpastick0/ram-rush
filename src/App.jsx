@@ -1023,12 +1023,11 @@ export default function App() {
         <div style={{ width: "100%", display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
           <RamRushGame
             mode="practice"
-            attemptNumber={practiceAttempt}
+            attemptNumber={1}
             onAttemptDone={(s) => {
-              setPracticeAttempt((a) => a + 1);
               recordHighScore(name, s);
             }}
-            key={practiceAttempt}
+            key="practice"
           />
           <button
             onClick={() => setScreen("home")}
