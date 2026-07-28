@@ -111,9 +111,9 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
   const touchStart = useRef(null);
   const isTouch = isTouchDevice();
 
-  const W = 280,
-    H = 380,
-    PLAYER_Y = 300;
+  const W = 360,
+    H = 480,
+    PLAYER_Y = 390;
   const LANE_X = [W * 0.22, W * 0.5, W * 0.78];
   const JUMP_FRAMES = 28;
   const SLIDE_FRAMES = 28;
@@ -126,8 +126,8 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
       actionTimer: 0,
       obstacles: [],
       frame: 0,
-      speed: 3.4,
-      spawnTimer: 40,
+      speed: 2.2,
+      spawnTimer: 80,
       score: 0,
       dead: false,
     };
@@ -222,13 +222,13 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
       const targetX = LANE_X[s.lane];
       s.displayX += (targetX - s.displayX) * 0.28;
 
-      // speed ramp
-      s.speed = 3.4 + Math.min(s.frame / 240, 4.6);
+      // speed ramp — starts slower, gentler curve
+      s.speed = 2.2 + Math.min(s.frame / 360, 3.0);
 
       // spawn obstacles: block 1-2 lanes, always leave one open
       s.spawnTimer -= 1;
       if (s.spawnTimer <= 0) {
-        const lanesToBlock = Math.random() < 0.35 ? 2 : 1;
+        const lanesToBlock = Math.random() < 0.18 ? 2 : 1;
         const laneOrder = [0, 1, 2].sort(() => Math.random() - 0.5);
         const blocked = laneOrder.slice(0, lanesToBlock);
         blocked.forEach((lane) => {
@@ -239,7 +239,7 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
             resolved: false,
           });
         });
-        s.spawnTimer = 46 - Math.min(s.frame / 24, 22) + Math.random() * 18;
+        s.spawnTimer = 80 - Math.min(s.frame / 40, 30) + Math.random() * 25;
       }
       s.obstacles.forEach((o) => (o.y += s.speed));
       s.obstacles = s.obstacles.filter((o) => o.y < H + 40);
@@ -484,7 +484,7 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
           border: `2px solid ${COLORS.sol}`,
           boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
           width: "100%",
-          maxWidth: 280,
+          maxWidth: 360,
           touchAction: "none",
         }}
       >
