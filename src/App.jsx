@@ -96,6 +96,16 @@ function HornStepper({ step }) {
 
 // ---------- Ram Rush game (3-lane runner) ----------
 const LANE_COUNT = 3;
+const BLCH_W = 62; // bleacher strip width on each side
+
+// Deterministic hash for consistent per-fan colors across frames
+function fanHash(row, col) {
+  let h = ((row * 2654435761) ^ (col * 2246822519)) >>> 0;
+  h ^= h >>> 16;
+  h = (h * 0x45d9f3b) >>> 0;
+  h ^= h >>> 15;
+  return h;
+}
 
 function isTouchDevice() {
   return typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0);
@@ -289,20 +299,60 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
       // ---- draw ----
       ctx.clearRect(0, 0, W, H);
 
-      // Alternating green grass stripes (scroll with field)
+      // Alternating green grass stripes (field area only, bleachers drawn on top)
       for (let i = 0, y = s.fieldOffset - 80; y < H + 80; y += 80, i++) {
         ctx.fillStyle = (linesSpawned - i) % 2 === 0 ? "#1E6B1E" : "#267326";
-        ctx.fillRect(0, y, W, 82);
+        ctx.fillRect(BLCH_W, y, W - BLCH_W * 2, 82);
       }
 
-      // White yard lines
+      // ---- Bleachers ----
+      const JERSEY = [COLORS.royal, COLORS.royal, COLORS.sol, COLORS.bone, COLORS.royal, COLORS.sol];
+      const SKIN = ["#F5C89C", "#D4976A", "#8B5C38", "#C8956A"];
+      const ROW_H = 20;
+      const crowdScroll = s.totalPixels % ROW_H;
+      const baseRow = Math.floor(s.totalPixels / ROW_H);
+      const NUM_COLS = 4;
+      const colSpacing = BLCH_W / NUM_COLS;
+
+      // Dark stadium background
+      ctx.fillStyle = "#0B1827";
+      ctx.fillRect(0, 0, BLCH_W, H);
+      ctx.fillRect(W - BLCH_W, 0, BLCH_W, H);
+
+      // Scrolling fans
+      for (let i = 0; i < Math.ceil(H / ROW_H) + 1; i++) {
+        const rowY = i * ROW_H - crowdScroll + 14;
+        const rowIdx = baseRow - i;
+        for (let col = 0; col < NUM_COLS; col++) {
+          const px = Math.floor(colSpacing * col + colSpacing / 2);
+          // Left fan
+          const h1 = fanHash(rowIdx, col);
+          ctx.fillStyle = SKIN[h1 % SKIN.length];
+          ctx.fillRect(px - 3, rowY - 9, 6, 5);
+          ctx.fillStyle = JERSEY[(h1 >> 3) % JERSEY.length];
+          ctx.fillRect(px - 4, rowY - 4, 8, 6);
+          // Right fan (independent hash so they're not mirrored)
+          const h2 = fanHash(rowIdx + 53, col + 17);
+          ctx.fillStyle = SKIN[h2 % SKIN.length];
+          ctx.fillRect(W - px - 3, rowY - 9, 6, 5);
+          ctx.fillStyle = JERSEY[(h2 >> 3) % JERSEY.length];
+          ctx.fillRect(W - px - 4, rowY - 4, 8, 6);
+        }
+      }
+
+      // Retaining wall between bleachers and field
+      ctx.fillStyle = "rgba(255,255,255,0.55)";
+      ctx.fillRect(BLCH_W, 0, 2, H);
+      ctx.fillRect(W - BLCH_W - 2, 0, 2, H);
+
+      // White yard lines (field only)
       ctx.strokeStyle = "rgba(255,255,255,0.55)";
       ctx.lineWidth = 1.5;
       ctx.setLineDash([]);
       for (let y = s.fieldOffset - 80; y < H; y += 80) {
         ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(W, y);
+        ctx.moveTo(BLCH_W, y);
+        ctx.lineTo(W - BLCH_W, y);
         ctx.stroke();
       }
 
@@ -318,15 +368,15 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
         });
       }
 
-      // Yard line numbers on left and right edges
-      ctx.font = "bold 12px 'IBM Plex Mono', monospace";
+      // Yard numbers — on field just inside the retaining walls
+      ctx.font = "bold 11px 'IBM Plex Mono', monospace";
       ctx.textAlign = "center";
       for (let i = 0, y = s.fieldOffset - 80; y < H; y += 80, i++) {
         const yardNum = linesSpawned - i;
         if (yardNum > 0) {
           ctx.fillStyle = "rgba(255,255,255,0.8)";
-          ctx.fillText(`${yardNum}`, W * 0.08, y + 5);
-          ctx.fillText(`${yardNum}`, W * 0.92, y + 5);
+          ctx.fillText(`${yardNum}`, BLCH_W + 18, y + 5);
+          ctx.fillText(`${yardNum}`, W - BLCH_W - 18, y + 5);
         }
       }
 
