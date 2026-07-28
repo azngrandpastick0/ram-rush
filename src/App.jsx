@@ -141,6 +141,8 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
       fieldOffset: 0,
       score: 0,
       dead: false,
+      dying: false,
+      dyingTimer: 0,
     };
     setScore(0);
   };
@@ -237,8 +239,8 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
       s.speed = 1.6 + Math.min(s.frame / 480, 2.2);
 
       // spawn obstacles: block 1-2 lanes, always leave one open
-      s.spawnTimer -= 1;
-      if (s.spawnTimer <= 0) {
+      if (!s.dying) s.spawnTimer -= 1;
+      if (s.spawnTimer <= 0 && !s.dying) {
         const lanesToBlock = Math.random() < 0.18 ? 2 : 1;
         const laneOrder = [0, 1, 2].sort(() => Math.random() - 0.5);
         const blocked = laneOrder.slice(0, lanesToBlock);
@@ -256,22 +258,27 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
       s.obstacles = s.obstacles.filter((o) => o.y < H + 40);
 
       // collision
-      for (const o of s.obstacles) {
-        if (o.resolved) continue;
-        if (Math.abs(o.y - PLAYER_Y) < 18 && o.lane === s.lane) {
-          const safe =
-            (o.type === "ground" && s.action === "jump") ||
-            (o.type === "aerial" && s.action === "slide");
-          if (!safe) {
-            s.dead = true;
-          } else {
-            o.resolved = true;
+      if (!s.dying) {
+        for (const o of s.obstacles) {
+          if (o.resolved) continue;
+          if (Math.abs(o.y - PLAYER_Y) < 18 && o.lane === s.lane) {
+            const safe =
+              (o.type === "ground" && s.action === "jump") ||
+              (o.type === "aerial" && s.action === "slide");
+            if (!safe) {
+              s.dying = true;
+              s.dyingTimer = 50;
+            } else {
+              o.resolved = true;
+            }
           }
         }
       }
 
-      s.score = Math.floor(s.frame / 6);
-      setScore(s.score);
+      if (!s.dying) {
+        s.score = Math.floor(s.frame / 6);
+        setScore(s.score);
+      }
 
       // ---- draw ----
       ctx.clearRect(0, 0, W, H);
@@ -408,11 +415,26 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
       }
       ctx.restore();
 
-      if (s.dead) {
-        setFinalScore(s.score);
-        setPhase("over");
-        return;
+      // red flash overlay while dying
+      if (s.dying) {
+        s.dyingTimer--;
+        const flashOn = Math.floor(s.dyingTimer / 7) % 2 === 0;
+        if (flashOn) {
+          ctx.save();
+          ctx.globalAlpha = 0.6;
+          ctx.fillStyle = "#CC1111";
+          ctx.fillRect(rx - 34, ry - 58, 68, 68);
+          ctx.globalAlpha = 1;
+          ctx.restore();
+        }
+        if (s.dyingTimer <= 0) {
+          s.dead = true;
+          setFinalScore(s.score);
+          setPhase("over");
+          return;
+        }
       }
+
       rafRef.current = requestAnimationFrame(loop);
     };
 
@@ -505,8 +527,16 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
         </div>
       )}
       {phase === "over" && (
-        <div style={{ fontFamily: "'Inter', sans-serif", color: COLORS.bone, fontSize: 13, textAlign: "center" }}>
-          Ram down. Score locked: <b style={{ color: COLORS.sol }}>{finalScore}</b>
+        <div style={{ textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
+          <div style={{ fontFamily: "'Anton', sans-serif", fontSize: 32, color: "#CC1111", letterSpacing: 3 }}>
+            RAM DOWN
+          </div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, color: COLORS.sol, letterSpacing: 1 }}>
+            SCORE: {finalScore}
+          </div>
+          <button onClick={start} style={btnStyle(true)}>
+            Play Again
+          </button>
         </div>
       )}
     </div>
