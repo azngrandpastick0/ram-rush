@@ -131,7 +131,7 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
 
   useEffect(() => {
     const BASE = import.meta.env.BASE_URL;
-    ["player", "Running", "Jumping", "Sliding", "defender"].forEach((name) => {
+    ["player", "Running", "Jumping", "Sliding", "Defender"].forEach((name) => {
       const img = new Image();
       img.src = `${BASE}sprites/${name}.png`;
       img.onload = () => { spritesRef.current[name] = img; };
@@ -219,6 +219,7 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
           x: W + 36,
           type: Math.random() < 0.5 ? "ground" : "aerial",
           resolved: false,
+          frameOffset: Math.floor(Math.random() * 5),
         });
         s.spawnTimer = 100 - Math.min(s.frame / 35, 38) + Math.random() * 35;
       }
@@ -327,9 +328,17 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
         ctx.save();
         ctx.imageSmoothingEnabled = false;
         if (o.type === "ground") {
-          const defSprite = spritesRef.current.defender;
-          if (defSprite) {
-            ctx.drawImage(defSprite, o.x - 32, GROUND_Y - 64, 64, 64);
+          const defSheet = spritesRef.current.Defender;
+          const DEF_FRAME_W = 215, DEF_FRAME_H = 328, DEF_DISP_H = 82;
+          const defDispW = Math.round(DEF_FRAME_W * (DEF_DISP_H / DEF_FRAME_H));
+          const defFrameIdx = (Math.floor(s.frame / 5) + (o.frameOffset || 0)) % 5;
+          if (defSheet) {
+            // flip horizontally so defender faces left (toward player)
+            ctx.save();
+            ctx.translate(o.x, GROUND_Y);
+            ctx.scale(-1, 1);
+            ctx.drawImage(defSheet, defFrameIdx * DEF_FRAME_W, 0, DEF_FRAME_W, DEF_FRAME_H, -defDispW / 2, -DEF_DISP_H, defDispW, DEF_DISP_H);
+            ctx.restore();
           } else {
             ctx.fillStyle = COLORS.royal;
             ctx.fillRect(o.x - 12, GROUND_Y - 40, 24, 40);
