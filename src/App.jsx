@@ -94,10 +94,7 @@ function HornStepper({ step }) {
   );
 }
 
-// ---------- Ram Rush game (3-lane runner) ----------
-const LANE_COUNT = 3;
-const BLCH_W = 62; // bleacher strip width on each side
-
+// ---------- Ram Rush game (horizontal runner) ----------
 // Deterministic hash for consistent per-fan colors across frames
 function fanHash(row, col) {
   let h = ((row * 2654435761) ^ (col * 2246822519)) >>> 0;
@@ -117,10 +114,20 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
   const stateRef = useRef(null);
   const spritesRef = useRef({});
   const [score, setScore] = useState(0);
-  const [phase, setPhase] = useState("ready"); // ready | playing | over
+  const [phase, setPhase] = useState("ready");
   const [finalScore, setFinalScore] = useState(0);
   const touchStart = useRef(null);
   const isTouch = isTouchDevice();
+
+  // Wide/short canvas for horizontal runner
+  const W = 420, H = 260;
+  const PLAYER_X = 85;
+  const GROUND_Y = 205;
+  const CROWD_H = 48;
+  const LINE_SPACING = 110;
+  const JUMP_FRAMES = 32;
+  const SLIDE_FRAMES = 30;
+  const AERIAL_Y = GROUND_Y - 48; // football center height
 
   useEffect(() => {
     const BASE = import.meta.env.BASE_URL;
@@ -131,23 +138,14 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
     });
   }, []);
 
-  const W = 420,
-    H = 560,
-    PLAYER_Y = 460;
-  const LANE_X = [W * 0.22, W * 0.5, W * 0.78];
-  const JUMP_FRAMES = 28;
-  const SLIDE_FRAMES = 28;
-
   const reset = () => {
     stateRef.current = {
-      lane: 1,
-      displayX: LANE_X[1],
-      action: "none", // none | jump | slide
+      action: "none",
       actionTimer: 0,
       obstacles: [],
       frame: 0,
-      speed: 1.6,
-      spawnTimer: 80,
+      speed: 2.2,
+      spawnTimer: 110,
       fieldOffset: 0,
       totalPixels: 0,
       score: 0,
@@ -172,41 +170,16 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
     s.actionTimer = SLIDE_FRAMES;
   }, [phase]);
 
-  const moveLane = useCallback(
-    (dir) => {
-      const s = stateRef.current;
-      if (!s || phase !== "playing") return;
-      const next = s.lane + dir;
-      if (next < 0 || next >= LANE_COUNT) return;
-      s.lane = next;
-    },
-    [phase]
-  );
-
   useEffect(() => {
     const handler = (e) => {
-      if (["Space", "ArrowUp"].includes(e.code)) {
-        e.preventDefault();
-        doJump();
-      } else if (e.code === "ArrowDown") {
-        e.preventDefault();
-        doSlide();
-      } else if (e.code === "ArrowLeft") {
-        e.preventDefault();
-        moveLane(-1);
-      } else if (e.code === "ArrowRight") {
-        e.preventDefault();
-        moveLane(1);
-      }
+      if (["Space", "ArrowUp"].includes(e.code)) { e.preventDefault(); doJump(); }
+      else if (e.code === "ArrowDown") { e.preventDefault(); doSlide(); }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [doJump, doSlide, moveLane]);
+  }, [doJump, doSlide]);
 
-  const start = () => {
-    reset();
-    setPhase("playing");
-  };
+  const start = () => { reset(); setPhase("playing"); };
 
   const onTouchStart = (e) => {
     const t = e.touches ? e.touches[0] : e;
@@ -215,16 +188,13 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
   const onTouchEnd = (e) => {
     if (!touchStart.current) return;
     const t = e.changedTouches ? e.changedTouches[0] : e;
-    const dx = t.clientX - touchStart.current.x;
     const dy = t.clientY - touchStart.current.y;
     const dt = Date.now() - touchStart.current.t;
     touchStart.current = null;
     if (dt > 600) return;
-    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 24) {
-      moveLane(dx > 0 ? 1 : -1);
-    } else if (Math.abs(dy) > 24) {
-      dy < 0 ? doJump() : doSlide();
-    }
+    if (dy < -20) doJump();
+    else if (dy > 20) doSlide();
+    else doJump(); // tap = jump
   };
 
   useEffect(() => {
@@ -236,247 +206,185 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
       if (!s || s.dead) return;
       s.frame++;
 
-      // action timer
       if (s.action !== "none") {
         s.actionTimer--;
         if (s.actionTimer <= 0) s.action = "none";
       }
 
-      // smooth lane movement
-      const targetX = LANE_X[s.lane];
-      s.displayX += (targetX - s.displayX) * 0.28;
+      s.speed = 2.2 + Math.min(s.frame / 420, 3.0);
 
-      // speed ramp — starts slower, gentler curve
-      s.speed = 1.6 + Math.min(s.frame / 480, 2.2);
-
-      // spawn obstacles: block 1-2 lanes, always leave one open
-      if (!s.dying) s.spawnTimer -= 1;
+      if (!s.dying) s.spawnTimer--;
       if (s.spawnTimer <= 0 && !s.dying) {
-        const lanesToBlock = Math.random() < 0.18 ? 2 : 1;
-        const laneOrder = [0, 1, 2].sort(() => Math.random() - 0.5);
-        const blocked = laneOrder.slice(0, lanesToBlock);
-        blocked.forEach((lane) => {
-          s.obstacles.push({
-            lane,
-            y: -30,
-            type: Math.random() < 0.5 ? "ground" : "aerial",
-            resolved: false,
-          });
+        s.obstacles.push({
+          x: W + 36,
+          type: Math.random() < 0.5 ? "ground" : "aerial",
+          resolved: false,
         });
-        s.spawnTimer = 80 - Math.min(s.frame / 40, 30) + Math.random() * 25;
+        s.spawnTimer = 100 - Math.min(s.frame / 35, 38) + Math.random() * 35;
       }
-      s.obstacles.forEach((o) => (o.y += s.speed));
-      s.obstacles = s.obstacles.filter((o) => o.y < H + 40);
 
-      // collision
+      s.obstacles.forEach((o) => (o.x -= s.speed));
+      s.obstacles = s.obstacles.filter((o) => o.x > -80);
+
       if (!s.dying) {
         for (const o of s.obstacles) {
           if (o.resolved) continue;
-          if (Math.abs(o.y - PLAYER_Y) < 18 && o.lane === s.lane) {
-            const safe =
-              (o.type === "ground" && s.action === "jump") ||
-              (o.type === "aerial" && s.action === "slide");
-            if (!safe) {
-              s.dying = true;
-              s.dyingTimer = 50;
-            } else {
-              o.resolved = true;
-            }
+          if (Math.abs(o.x - PLAYER_X) < 24) {
+            const safe = (o.type === "ground" && s.action === "jump") ||
+                         (o.type === "aerial" && s.action === "slide");
+            if (!safe) { s.dying = true; s.dyingTimer = 50; }
+            else { o.resolved = true; }
           }
         }
       }
 
-      // accumulate distance for yard-line scoring
       s.totalPixels += s.speed;
-      s.fieldOffset = (s.fieldOffset + s.speed) % 80;
-      const linesSpawned = Math.floor(s.totalPixels / 80);
+      s.fieldOffset = (s.fieldOffset + s.speed) % LINE_SPACING;
+      const linesSpawned = Math.floor(s.totalPixels / LINE_SPACING);
 
       if (!s.dying) {
         s.score = linesSpawned;
         setScore(s.score);
       }
 
-      // ---- draw ----
+      // Player Y for this frame
+      let playerY = GROUND_Y;
+      let squash = 1;
+      if (s.action === "jump") {
+        const progress = 1 - s.actionTimer / JUMP_FRAMES;
+        playerY = GROUND_Y - Math.sin(progress * Math.PI) * 58;
+      }
+      if (s.action === "slide") squash = 0.45;
+
+      // ---- Draw ----
       ctx.clearRect(0, 0, W, H);
 
-      // Alternating green grass stripes (field area only, bleachers drawn on top)
-      for (let i = 0, y = s.fieldOffset - 80; y < H + 80; y += 80, i++) {
-        ctx.fillStyle = (linesSpawned - i) % 2 === 0 ? "#1E6B1E" : "#267326";
-        ctx.fillRect(BLCH_W, y, W - BLCH_W * 2, 82);
-      }
+      // Sky-to-field gradient background
+      const bg = ctx.createLinearGradient(0, 0, 0, H);
+      bg.addColorStop(0, "#0B1827");
+      bg.addColorStop(0.42, "#0E2B4A");
+      bg.addColorStop(0.54, "#1A5C1A");
+      bg.addColorStop(1, "#124512");
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, W, H);
 
-      // ---- Bleachers ----
-      const JERSEY = [COLORS.royal, COLORS.royal, COLORS.sol, COLORS.bone, COLORS.royal, COLORS.sol];
-      const SKIN = ["#F5C89C", "#D4976A", "#8B5C38", "#C8956A"];
-      const ROW_H = 20;
-      const crowdScroll = s.totalPixels % ROW_H;
-      const baseRow = Math.floor(s.totalPixels / ROW_H);
-      const NUM_COLS = 4;
-      const colSpacing = BLCH_W / NUM_COLS;
-
-      // Dark stadium background
-      ctx.fillStyle = "#0B1827";
-      ctx.fillRect(0, 0, BLCH_W, H);
-      ctx.fillRect(W - BLCH_W, 0, BLCH_W, H);
-
-      // Scrolling fans
-      for (let i = 0; i < Math.ceil(H / ROW_H) + 1; i++) {
-        const rowY = i * ROW_H - crowdScroll + 14;
-        const rowIdx = baseRow - i;
-        for (let col = 0; col < NUM_COLS; col++) {
-          const px = Math.floor(colSpacing * col + colSpacing / 2);
-          // Left fan
-          const h1 = fanHash(rowIdx, col);
-          ctx.fillStyle = SKIN[h1 % SKIN.length];
-          ctx.fillRect(px - 3, rowY - 9, 6, 5);
-          ctx.fillStyle = JERSEY[(h1 >> 3) % JERSEY.length];
-          ctx.fillRect(px - 4, rowY - 4, 8, 6);
-          // Right fan (independent hash so they're not mirrored)
-          const h2 = fanHash(rowIdx + 53, col + 17);
-          ctx.fillStyle = SKIN[h2 % SKIN.length];
-          ctx.fillRect(W - px - 3, rowY - 9, 6, 5);
-          ctx.fillStyle = JERSEY[(h2 >> 3) % JERSEY.length];
-          ctx.fillRect(W - px - 4, rowY - 4, 8, 6);
-        }
-      }
-
-      // Retaining wall between bleachers and field
-      ctx.fillStyle = "rgba(255,255,255,0.55)";
-      ctx.fillRect(BLCH_W, 0, 2, H);
-      ctx.fillRect(W - BLCH_W - 2, 0, 2, H);
-
-      // White yard lines (field only)
-      ctx.strokeStyle = "rgba(255,255,255,0.55)";
+      // Scrolling vertical yard lines on field
+      ctx.strokeStyle = "rgba(255,255,255,0.45)";
       ctx.lineWidth = 1.5;
       ctx.setLineDash([]);
-      for (let y = s.fieldOffset - 80; y < H; y += 80) {
+      const lineStart = W - s.fieldOffset;
+      for (let x = lineStart; x > -LINE_SPACING; x -= LINE_SPACING) {
         ctx.beginPath();
-        ctx.moveTo(BLCH_W, y);
-        ctx.lineTo(W - BLCH_W, y);
+        ctx.moveTo(x, CROWD_H + 2);
+        ctx.lineTo(x, H);
         ctx.stroke();
       }
 
-      // Hash marks
-      ctx.strokeStyle = "rgba(255,255,255,0.35)";
-      ctx.lineWidth = 1;
-      for (let y = s.fieldOffset - 80; y < H; y += 80) {
-        [W * 0.38, W * 0.62].forEach((hx) => {
-          ctx.beginPath();
-          ctx.moveTo(hx - 8, y);
-          ctx.lineTo(hx + 8, y);
-          ctx.stroke();
+      // Yard numbers on field
+      ctx.font = "bold 10px 'IBM Plex Mono', monospace";
+      ctx.textAlign = "center";
+      for (let i = 0, x = lineStart; x > -LINE_SPACING; x -= LINE_SPACING, i++) {
+        const yardNum = linesSpawned + 1 + i;
+        ctx.fillStyle = "rgba(255,255,255,0.65)";
+        ctx.fillText(`${yardNum}`, x, GROUND_Y - 8);
+      }
+
+      // Ground line
+      ctx.strokeStyle = "rgba(255,255,255,0.55)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, GROUND_Y);
+      ctx.lineTo(W, GROUND_Y);
+      ctx.stroke();
+
+      // Crowd strip at top — dark background
+      ctx.fillStyle = "#0B1827";
+      ctx.fillRect(0, 0, W, CROWD_H);
+
+      // Scrolling pixel-art fans (parallax slower than field)
+      const JERSEY = [COLORS.royal, COLORS.royal, COLORS.sol, COLORS.bone, COLORS.royal, COLORS.sol];
+      const SKIN = ["#F5C89C", "#D4976A", "#8B5C38", "#C8956A"];
+      const fanSpacing = 13;
+      const crowdScroll = (s.totalPixels * 0.35) % fanSpacing;
+      const numFanCols = Math.ceil(W / fanSpacing) + 1;
+      for (let col = 0; col < numFanCols; col++) {
+        const fx = col * fanSpacing - crowdScroll;
+        [10, 22, 35].forEach((fy, row) => {
+          const h = fanHash(row * 300 + col, 7);
+          ctx.fillStyle = SKIN[h % SKIN.length];
+          ctx.fillRect(fx - 2, fy - 4, 5, 4);
+          ctx.fillStyle = JERSEY[(h >> 3) % JERSEY.length];
+          ctx.fillRect(fx - 3, fy, 6, 5);
         });
       }
 
-      // Yard numbers — on field just inside the retaining walls
-      ctx.font = "bold 11px 'IBM Plex Mono', monospace";
-      ctx.textAlign = "center";
-      for (let i = 0, y = s.fieldOffset - 80; y < H; y += 80, i++) {
-        const yardNum = linesSpawned - i;
-        if (yardNum > 0) {
-          ctx.fillStyle = "rgba(255,255,255,0.8)";
-          ctx.fillText(`${yardNum}`, BLCH_W + 18, y + 5);
-          ctx.fillText(`${yardNum}`, W - BLCH_W - 18, y + 5);
-        }
-      }
+      // Crowd / field separator
+      ctx.fillStyle = "rgba(255,255,255,0.45)";
+      ctx.fillRect(0, CROWD_H, W, 2);
 
-      // Lane dividers
-      ctx.strokeStyle = "rgba(255,255,255,0.3)";
-      ctx.lineWidth = 2;
-      ctx.setLineDash([10, 12]);
-      const divX1 = (LANE_X[0] + LANE_X[1]) / 2;
-      const divX2 = (LANE_X[1] + LANE_X[2]) / 2;
-      ctx.beginPath();
-      ctx.moveTo(divX1, 0);
-      ctx.lineTo(divX1, H);
-      ctx.moveTo(divX2, 0);
-      ctx.lineTo(divX2, H);
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      // obstacles
+      // Obstacles
       s.obstacles.forEach((o) => {
-        const ox = LANE_X[o.lane];
+        ctx.save();
+        ctx.imageSmoothingEnabled = false;
         if (o.type === "ground") {
           const defSprite = spritesRef.current.defender;
-          ctx.save();
-          ctx.imageSmoothingEnabled = false;
           if (defSprite) {
-            ctx.drawImage(defSprite, ox - 32, o.y - 64, 64, 64);
+            ctx.drawImage(defSprite, o.x - 32, GROUND_Y - 64, 64, 64);
           } else {
-            // fallback shape if sprite hasn't loaded yet
             ctx.fillStyle = COLORS.royal;
-            ctx.fillRect(ox - 12, o.y - 36, 24, 36);
+            ctx.fillRect(o.x - 12, GROUND_Y - 40, 24, 40);
           }
-          ctx.restore();
         } else {
-          // spiked football hazard — drawn at origin then rotated 45°
-          const cx = ox, cy = o.y - 16;
-          const fRx = 15, fRy = 10;
-          ctx.save();
-          ctx.translate(cx, cy);
+          // Spiked football at aerial height
+          ctx.translate(o.x, AERIAL_Y);
           ctx.rotate(Math.PI / 4);
-          // ball body
+          const fRx = 15, fRy = 10;
           ctx.fillStyle = "#6B3A1F";
           ctx.beginPath();
           ctx.ellipse(0, 0, fRx, fRy, 0, 0, Math.PI * 2);
           ctx.fill();
-          // laces
           ctx.strokeStyle = "rgba(241,234,217,0.85)";
           ctx.lineWidth = 1.5;
           ctx.beginPath();
-          ctx.moveTo(-6, 0);
-          ctx.lineTo(6, 0);
-          for (let i = -4; i <= 4; i += 4) {
-            ctx.moveTo(i, -2);
-            ctx.lineTo(i, 2);
-          }
+          ctx.moveTo(-6, 0); ctx.lineTo(6, 0);
+          for (let i = -4; i <= 4; i += 4) { ctx.moveTo(i, -2); ctx.lineTo(i, 2); }
           ctx.stroke();
-          // spikes radiating outward
-          const spikeCount = 9;
           ctx.fillStyle = "rgba(203,206,212,0.95)";
-          for (let i = 0; i < spikeCount; i++) {
-            const a = (i / spikeCount) * Math.PI * 2;
-            const ex = Math.cos(a) * fRx;
-            const ey = Math.sin(a) * fRy;
+          for (let i = 0; i < 9; i++) {
+            const a = (i / 9) * Math.PI * 2;
+            const ex = Math.cos(a) * fRx, ey = Math.sin(a) * fRy;
             const nx = Math.cos(a), ny = Math.sin(a);
-            const px = -ny, py = nx;
-            const baseW = 3, len = 8;
+            const px2 = -ny, py2 = nx;
             ctx.beginPath();
-            ctx.moveTo(ex - px * baseW, ey - py * baseW);
-            ctx.lineTo(ex + px * baseW, ey + py * baseW);
-            ctx.lineTo(ex + nx * len, ey + ny * len);
+            ctx.moveTo(ex - px2 * 3, ey - py2 * 3);
+            ctx.lineTo(ex + px2 * 3, ey + py2 * 3);
+            ctx.lineTo(ex + nx * 8, ey + ny * 8);
             ctx.closePath();
             ctx.fill();
           }
-          ctx.restore();
         }
+        ctx.restore();
       });
 
-      // ram player
-      const rx = s.displayX;
-      let ry = PLAYER_Y;
-      let squash = 1;
+      // Jump shadow
       if (s.action === "jump") {
-        const progress = 1 - s.actionTimer / JUMP_FRAMES;
-        const arc = Math.sin(progress * Math.PI) * 30;
-        ry = PLAYER_Y - arc;
-        ctx.fillStyle = "rgba(0,0,0,0.25)";
+        const lift = GROUND_Y - playerY;
+        const shadowW = Math.max(4, 16 - lift * 0.18);
+        ctx.fillStyle = "rgba(0,0,0,0.22)";
         ctx.beginPath();
-        ctx.ellipse(rx, PLAYER_Y + 14, 14, 5, 0, 0, Math.PI * 2);
+        ctx.ellipse(PLAYER_X, GROUND_Y + 4, shadowW, 4, 0, 0, Math.PI * 2);
         ctx.fill();
       }
-      if (s.action === "slide") squash = 0.5;
 
+      // Player sprite
       const playerSprite = spritesRef.current.player;
       ctx.save();
       ctx.imageSmoothingEnabled = false;
-      ctx.translate(rx, ry);
+      ctx.translate(PLAYER_X, playerY);
       ctx.scale(1, squash);
       if (playerSprite) {
         ctx.drawImage(playerSprite, -32, -56, 64, 64);
       } else {
-        // fallback shape if sprite hasn't loaded yet
         ctx.fillStyle = COLORS.bone;
         ctx.beginPath();
         ctx.ellipse(0, 0, 16, 13, 0, 0, Math.PI * 2);
@@ -484,15 +392,14 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
       }
       ctx.restore();
 
-      // red flash overlay while dying
+      // Red flash while dying
       if (s.dying) {
         s.dyingTimer--;
-        const flashOn = Math.floor(s.dyingTimer / 7) % 2 === 0;
-        if (flashOn) {
+        if (Math.floor(s.dyingTimer / 7) % 2 === 0) {
           ctx.save();
           ctx.globalAlpha = 0.6;
           ctx.fillStyle = "#CC1111";
-          ctx.fillRect(rx - 34, ry - 58, 68, 68);
+          ctx.fillRect(PLAYER_X - 34, playerY - 58, 68, 68);
           ctx.globalAlpha = 1;
           ctx.restore();
         }
@@ -512,9 +419,7 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
   }, [phase]);
 
   useEffect(() => {
-    if (phase === "over") {
-      onAttemptDone(finalScore);
-    }
+    if (phase === "over") onAttemptDone(finalScore);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
 
@@ -525,7 +430,7 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
       style={{
         ...btnStyle(false),
         border: `1px solid rgba(241,234,217,0.4)`,
-        padding: "10px 16px",
+        padding: "10px 22px",
         fontSize: 13,
         opacity: phase === "playing" ? 1 : 0.4,
       }}
@@ -541,27 +446,13 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
         {phase === "playing" ? score : phase === "over" ? finalScore : 0}
       </div>
 
-      {/* Device-appropriate control hints (P1) */}
-      <div style={{ display: "flex", gap: 14, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: "rgba(241,234,217,0.6)" }}>
-        {isTouch ? (
-          <>
-            <span>↑ swipe → jump</span>
-            <span>↓ swipe → slide</span>
-            <span>← → swipe → lane</span>
-          </>
-        ) : (
-          <>
-            <span>↑ / space → jump</span>
-            <span>↓ → slide</span>
-            <span>← → → lane</span>
-          </>
-        )}
+      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: "rgba(241,234,217,0.6)" }}>
+        {isTouch ? "tap / swipe ↑ → jump   swipe ↓ → slide" : "↑ / space → jump     ↓ → slide"}
       </div>
 
-      {/* Obstacle type legend using shapes, not color alone */}
       <div style={{ display: "flex", gap: 16, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: "rgba(241,234,217,0.6)" }}>
-        <span>🏈 spiked ball → slide</span>
         <span>🏃 defender → jump</span>
+        <span>🏈 spiked ball → slide</span>
       </div>
 
       <div
@@ -582,17 +473,13 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
 
       {phase === "ready" && (
         <button onClick={start} style={btnStyle(true)}>
-          {mode === "practice" ? (attemptNumber === 1 ? "Start Run" : "Play Again") : attemptNumber === 1 ? "Start Run" : "Try Again"}
+          {attemptNumber === 1 ? "Start Run" : "Try Again"}
         </button>
       )}
       {phase === "playing" && (
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
-          <div>{ctrlBtn("▲ Jump", doJump)}</div>
-          <div style={{ display: "flex", gap: 8 }}>
-            {ctrlBtn("◀ Lane", () => moveLane(-1))}
-            {ctrlBtn("▼ Slide", doSlide)}
-            {ctrlBtn("Lane ▶", () => moveLane(1))}
-          </div>
+        <div style={{ display: "flex", gap: 12 }}>
+          {ctrlBtn("▲ Jump", doJump)}
+          {ctrlBtn("▼ Slide", doSlide)}
         </div>
       )}
       {phase === "over" && (
