@@ -113,6 +113,7 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
   const rafRef = useRef(null);
   const stateRef = useRef(null);
   const spritesRef = useRef({});
+  const lastFrameTime = useRef(0);
   const [score, setScore] = useState(0);
   const [phase, setPhase] = useState("ready");
   const [finalScore, setFinalScore] = useState(0);
@@ -201,19 +202,26 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
     if (phase !== "playing") return;
     const ctx = canvasRef.current.getContext("2d");
 
-    const loop = () => {
+    const loop = (timestamp) => {
       const s = stateRef.current;
       if (!s || s.dead) return;
+
+      // Delta time — normalize to 60fps so speed is consistent across frame rates
+      const dt = lastFrameTime.current ? Math.min(timestamp - lastFrameTime.current, 50) : 16.67;
+      lastFrameTime.current = timestamp;
+      const dtScale = dt / 16.67;
+
       s.frame++;
 
       if (s.action !== "none") {
-        s.actionTimer--;
+        s.actionTimer -= dtScale;
         if (s.actionTimer <= 0) s.action = "none";
       }
 
       s.speed = 2.2 + Math.min(s.frame / 420, 3.0);
+      const move = s.speed * dtScale;
 
-      if (!s.dying) s.spawnTimer--;
+      if (!s.dying) s.spawnTimer -= dtScale;
       if (s.spawnTimer <= 0 && !s.dying) {
         s.obstacles.push({
           x: W + 36,
@@ -224,13 +232,18 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
         s.spawnTimer = 100 - Math.min(s.frame / 35, 38) + Math.random() * 35;
       }
 
-      s.obstacles.forEach((o) => (o.x -= s.speed));
+      s.obstacles.forEach((o) => (o.x -= move));
       s.obstacles = s.obstacles.filter((o) => o.x > -80);
+
+      // Hitbox sized to actual sprite display widths (~23px player half + ~27px defender half)
+      const GROUND_HIT = 44;
+      const AERIAL_HIT = 36;
 
       if (!s.dying) {
         for (const o of s.obstacles) {
           if (o.resolved) continue;
-          if (Math.abs(o.x - PLAYER_X) < 24) {
+          const threshold = o.type === "ground" ? GROUND_HIT : AERIAL_HIT;
+          if (Math.abs(o.x - PLAYER_X) < threshold) {
             const safe = (o.type === "ground" && s.action === "jump") ||
                          (o.type === "aerial" && s.action === "slide");
             if (!safe) { s.dying = true; s.dyingTimer = 50; }
@@ -239,8 +252,8 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
         }
       }
 
-      s.totalPixels += s.speed;
-      s.fieldOffset = (s.fieldOffset + s.speed) % LINE_SPACING;
+      s.totalPixels += move;
+      s.fieldOffset = (s.fieldOffset + move) % LINE_SPACING;
       const linesSpawned = Math.floor(s.totalPixels / LINE_SPACING);
 
       if (!s.dying) {
