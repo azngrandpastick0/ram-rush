@@ -131,7 +131,7 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
 
   useEffect(() => {
     const BASE = import.meta.env.BASE_URL;
-    ["player", "Running", "Jumping", "Sliding", "Defender"].forEach((name) => {
+    ["player", "Running", "Jumping", "Sliding", "defender"].forEach((name) => {
       const img = new Image();
       img.src = `${BASE}sprites/${name}.png`;
       img.onload = () => { spritesRef.current[name] = img; };
@@ -328,7 +328,7 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
         ctx.save();
         ctx.imageSmoothingEnabled = false;
         if (o.type === "ground") {
-          const defSheet = spritesRef.current.Defender;
+          const defSheet = spritesRef.current.defender;
           const DEF_FRAME_W = 215, DEF_FRAME_H = 328, DEF_DISP_H = 82;
           const defDispW = Math.round(DEF_FRAME_W * (DEF_DISP_H / DEF_FRAME_H));
           const defFrameIdx = (Math.floor(s.frame / 5) + (o.frameOffset || 0)) % 5;
