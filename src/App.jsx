@@ -131,7 +131,7 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
 
   useEffect(() => {
     const BASE = import.meta.env.BASE_URL;
-    ["player", "Running", "Jumping", "Sliding", "defender"].forEach((name) => {
+    ["player", "player_run", "player_jump", "player_slide", "defender_run"].forEach((name) => {
       const img = new Image();
       img.src = `${BASE}sprites/${name}.png`;
       img.onload = () => { spritesRef.current[name] = img; };
@@ -328,17 +328,12 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
         ctx.save();
         ctx.imageSmoothingEnabled = false;
         if (o.type === "ground") {
-          const defSheet = spritesRef.current.defender;
+          const defSheet = spritesRef.current.defender_run;
           const DEF_FRAME_W = 215, DEF_FRAME_H = 328, DEF_DISP_H = 82;
           const defDispW = Math.round(DEF_FRAME_W * (DEF_DISP_H / DEF_FRAME_H));
           const defFrameIdx = (Math.floor(s.frame / 5) + (o.frameOffset || 0)) % 5;
           if (defSheet) {
-            // flip horizontally so defender faces left (toward player)
-            ctx.save();
-            ctx.translate(o.x, GROUND_Y);
-            ctx.scale(-1, 1);
-            ctx.drawImage(defSheet, defFrameIdx * DEF_FRAME_W, 0, DEF_FRAME_W, DEF_FRAME_H, -defDispW / 2, -DEF_DISP_H, defDispW, DEF_DISP_H);
-            ctx.restore();
+            ctx.drawImage(defSheet, defFrameIdx * DEF_FRAME_W, 0, DEF_FRAME_W, DEF_FRAME_H, o.x - defDispW / 2, GROUND_Y - DEF_DISP_H, defDispW, DEF_DISP_H);
           } else {
             ctx.fillStyle = COLORS.royal;
             ctx.fillRect(o.x - 12, GROUND_Y - 40, 24, 40);
@@ -390,17 +385,17 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
       const ANIM_H = 349, DISP_H = 82;
       let sheet, srcFrameW, numAnimFrames, animFrameIdx;
       if (s.action === "jump") {
-        sheet = spritesRef.current.Jumping;
+        sheet = spritesRef.current.player_jump;
         srcFrameW = 240; numAnimFrames = 5;
         const elapsed = JUMP_FRAMES - s.actionTimer;
         animFrameIdx = Math.min(4, Math.floor(elapsed * 5 / JUMP_FRAMES));
       } else if (s.action === "slide") {
-        sheet = spritesRef.current.Sliding;
+        sheet = spritesRef.current.player_slide;
         srcFrameW = 240; numAnimFrames = 5;
         const elapsed = SLIDE_FRAMES - s.actionTimer;
         animFrameIdx = Math.min(4, Math.floor(elapsed * 5 / SLIDE_FRAMES));
       } else {
-        sheet = spritesRef.current.Running;
+        sheet = spritesRef.current.player_run;
         srcFrameW = 200; numAnimFrames = 6;
         animFrameIdx = Math.floor(s.frame / 5) % numAnimFrames;
       }
