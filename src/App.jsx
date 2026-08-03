@@ -131,7 +131,7 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
 
   useEffect(() => {
     const BASE = import.meta.env.BASE_URL;
-    ["player", "defender"].forEach((name) => {
+    ["player", "Running", "Jumping", "Sliding", "defender"].forEach((name) => {
       const img = new Image();
       img.src = `${BASE}sprites/${name}.png`;
       img.onload = () => { spritesRef.current[name] = img; };
@@ -376,14 +376,35 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
         ctx.fill();
       }
 
-      // Player sprite
-      const playerSprite = spritesRef.current.player;
+      // Player sprite — pick sheet and frame based on current action
+      // All sheets: 1200px wide, 349px tall. Run=6 frames (200px ea), Jump/Slide=5 frames (240px ea)
+      const ANIM_H = 349, DISP_H = 82;
+      let sheet, srcFrameW, numAnimFrames, animFrameIdx;
+      if (s.action === "jump") {
+        sheet = spritesRef.current.Jumping;
+        srcFrameW = 240; numAnimFrames = 5;
+        const elapsed = JUMP_FRAMES - s.actionTimer;
+        animFrameIdx = Math.min(4, Math.floor(elapsed * 5 / JUMP_FRAMES));
+      } else if (s.action === "slide") {
+        sheet = spritesRef.current.Sliding;
+        srcFrameW = 240; numAnimFrames = 5;
+        const elapsed = SLIDE_FRAMES - s.actionTimer;
+        animFrameIdx = Math.min(4, Math.floor(elapsed * 5 / SLIDE_FRAMES));
+      } else {
+        sheet = spritesRef.current.Running;
+        srcFrameW = 200; numAnimFrames = 6;
+        animFrameIdx = Math.floor(s.frame / 5) % numAnimFrames;
+      }
+      const dispW = Math.round(srcFrameW * (DISP_H / ANIM_H));
+      const fallback = spritesRef.current.player;
       ctx.save();
-      ctx.imageSmoothingEnabled = false;
+      ctx.imageSmoothingEnabled = true;
       ctx.translate(PLAYER_X, playerY);
-      ctx.scale(1, squash);
-      if (playerSprite) {
-        ctx.drawImage(playerSprite, -32, -56, 64, 64);
+      if (sheet) {
+        ctx.drawImage(sheet, animFrameIdx * srcFrameW, 0, srcFrameW, ANIM_H, -dispW / 2, -DISP_H, dispW, DISP_H);
+      } else if (fallback) {
+        ctx.scale(1, squash);
+        ctx.drawImage(fallback, -32, -56, 64, 64);
       } else {
         ctx.fillStyle = COLORS.bone;
         ctx.beginPath();
