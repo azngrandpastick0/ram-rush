@@ -128,7 +128,7 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
   const LINE_SPACING = 110;
   const JUMP_FRAMES = 32;
   const SLIDE_FRAMES = 30;
-  const AERIAL_Y = GROUND_Y - 48; // football center height
+  const AERIAL_Y = GROUND_Y - 52; // football center height
 
   useEffect(() => {
     const BASE = import.meta.env.BASE_URL;
@@ -356,9 +356,12 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
             ctx.fillRect(o.x - 12, GROUND_Y - 40, 24, 40);
           }
         } else {
-          // Spiked football at aerial height
-          ctx.translate(o.x, AERIAL_Y);
-          ctx.rotate(Math.PI / 4);
+          // Spiked football — spins and bobs as it travels, tied to distance like the defender
+          const distTraveled = W + 36 - o.x;
+          const spin = distTraveled * 0.05;
+          const bob = Math.sin(distTraveled * 0.04) * 5;
+          ctx.translate(o.x, AERIAL_Y + bob);
+          ctx.rotate(spin);
           const fRx = 15, fRy = 10;
           ctx.fillStyle = "#6B3A1F";
           ctx.beginPath();
