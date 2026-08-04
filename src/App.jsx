@@ -342,9 +342,13 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
         ctx.imageSmoothingEnabled = false;
         if (o.type === "ground") {
           const defSheet = spritesRef.current.defender_run;
-          const DEF_FRAME_W = 215, DEF_FRAME_H = 328, DEF_DISP_H = 82;
+          const DEF_STRIP_W = 1075, DEF_NUM_FRAMES = 5;
+          const DEF_FRAME_W = DEF_STRIP_W / DEF_NUM_FRAMES; // 215
+          const DEF_FRAME_H = 328, DEF_DISP_H = 82;
           const defDispW = Math.round(DEF_FRAME_W * (DEF_DISP_H / DEF_FRAME_H));
-          const defFrameIdx = (Math.floor(s.frame / 5) + (o.frameOffset || 0)) % 5;
+          // Tie frame to distance traveled so legs sync with actual movement
+          const distTraveled = W + 36 - o.x;
+          const defFrameIdx = Math.floor(distTraveled / 28) % DEF_NUM_FRAMES;
           if (defSheet) {
             ctx.drawImage(defSheet, defFrameIdx * DEF_FRAME_W, 0, DEF_FRAME_W, DEF_FRAME_H, o.x - defDispW / 2, GROUND_Y - DEF_DISP_H, defDispW, DEF_DISP_H);
           } else {
