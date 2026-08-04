@@ -145,6 +145,7 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
       actionTimer: 0,
       obstacles: [],
       frame: 0,
+      elapsed: 0,
       speed: 2.2,
       spawnTimer: 110,
       fieldOffset: 0,
@@ -218,7 +219,10 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
         if (s.actionTimer <= 0) s.action = "none";
       }
 
-      s.speed = 2.2 + Math.min(s.frame / 420, 3.0);
+      if (!s.dying) s.elapsed += dt / 1000;
+      // Step up speed every 30 seconds — each tier adds 0.35, capped at tier 10
+      const speedTier = Math.min(Math.floor(s.elapsed / 30), 10);
+      s.speed = 2.2 + speedTier * 0.35;
       const move = s.speed * dtScale;
 
       if (!s.dying) s.spawnTimer -= dtScale;
