@@ -346,7 +346,7 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
         ctx.imageSmoothingEnabled = false;
         if (o.type === "ground") {
           const defSheet = spritesRef.current.defender_run;
-          const DEF_STRIP_W = 1075, DEF_NUM_FRAMES = 5;
+          const DEF_STRIP_W = 1500, DEF_NUM_FRAMES = 5;
           const DEF_FRAME_W = DEF_STRIP_W / DEF_NUM_FRAMES; // 215
           const DEF_FRAME_H = 328, DEF_DISP_H = 82;
           const defDispW = Math.round(DEF_FRAME_W * (DEF_DISP_H / DEF_FRAME_H));
