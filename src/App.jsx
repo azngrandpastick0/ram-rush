@@ -128,7 +128,7 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
   const LINE_SPACING = 110;
   const JUMP_FRAMES = 32;
   const SLIDE_FRAMES = 30;
-  const AERIAL_Y = GROUND_Y - 52; // football center height
+  const AERIAL_Y = GROUND_Y - 80; // football center height — approx player head level
 
   useEffect(() => {
     const BASE = import.meta.env.BASE_URL;
@@ -346,15 +346,17 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
         ctx.imageSmoothingEnabled = false;
         if (o.type === "ground") {
           const defSheet = spritesRef.current.defender_run;
-          const DEF_STRIP_W = 1500, DEF_NUM_FRAMES = 5;
-          const DEF_FRAME_W = DEF_STRIP_W / DEF_NUM_FRAMES; // 215
-          const DEF_FRAME_H = 328, DEF_DISP_H = 82;
-          const defDispW = Math.round(DEF_FRAME_W * (DEF_DISP_H / DEF_FRAME_H));
-          // Tie frame to distance traveled so legs sync with actual movement
+          const DEF_NUM_FRAMES = 5;
+          const DEF_SLOT_W = Math.round(1774 / DEF_NUM_FRAMES); // 355px per slot
+          const DEF_CONTENT_W = 327;                             // actual sprite within slot
+          const DEF_CONTENT_OFFSET = Math.round((DEF_SLOT_W - DEF_CONTENT_W) / 2); // ~14px
+          const DEF_FRAME_H = 887;
+          const DEF_DISP_H = 150; // scaled up from 82 to account for taller source frame
+          const defDispW = Math.round(DEF_CONTENT_W * (DEF_DISP_H / DEF_FRAME_H)); // ~55px
           const distTraveled = W + 36 - o.x;
           const defFrameIdx = Math.floor(distTraveled / 28) % DEF_NUM_FRAMES;
           if (defSheet) {
-            ctx.drawImage(defSheet, defFrameIdx * DEF_FRAME_W, 0, DEF_FRAME_W, DEF_FRAME_H, o.x - defDispW / 2, GROUND_Y - DEF_DISP_H, defDispW, DEF_DISP_H);
+            ctx.drawImage(defSheet, defFrameIdx * DEF_SLOT_W + DEF_CONTENT_OFFSET, 0, DEF_CONTENT_W, DEF_FRAME_H, o.x - defDispW / 2, GROUND_Y - DEF_DISP_H, defDispW, DEF_DISP_H);
           } else {
             ctx.fillStyle = COLORS.royal;
             ctx.fillRect(o.x - 12, GROUND_Y - 40, 24, 40);
@@ -363,7 +365,9 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
           // Spiked football — spins and bobs as it travels, tied to distance like the defender
           const distTraveled = W + 36 - o.x;
           const spin = distTraveled * 0.05;
-          const bob = Math.sin(distTraveled * 0.04) * 5;
+          // Parabolic drop — falls increasingly as it closes in, like a real pass losing altitude
+          const progress = distTraveled / (W + 116);
+          const bob = progress * progress * 22;
           ctx.translate(o.x, AERIAL_Y + bob);
           ctx.rotate(spin);
           const fRx = 15, fRy = 10;
