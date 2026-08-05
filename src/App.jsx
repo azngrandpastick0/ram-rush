@@ -220,18 +220,29 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
       s.elapsed += dt / 1000;
       // Step up speed every 30 seconds — each tier adds 0.35, capped at tier 10
       const speedTier = Math.min(Math.floor(s.elapsed / 30), 10);
-      s.speed = 2.2 + speedTier * 0.35;
+      s.speed = 2.6 + speedTier * 0.35;
       const move = s.speed * dtScale;
 
       s.spawnTimer -= dtScale;
       if (s.spawnTimer <= 0) {
+        const type = Math.random() < 0.5 ? "ground" : "aerial";
         s.obstacles.push({
           x: W + 36,
-          type: Math.random() < 0.5 ? "ground" : "aerial",
+          type,
           resolved: false,
           frameOffset: Math.floor(Math.random() * 5),
         });
-        s.spawnTimer = 100 - Math.min(s.frame / 35, 38) + Math.random() * 35;
+        // ~15% chance of a follow-up obstacle of opposite type (jump-then-slide or vice versa)
+        if (Math.random() < 0.15) {
+          const followGap = 95 + Math.random() * 55; // 95–150px behind, enough time to react
+          s.obstacles.push({
+            x: W + 36 + followGap,
+            type: type === "ground" ? "aerial" : "ground",
+            resolved: false,
+            frameOffset: Math.floor(Math.random() * 5),
+          });
+        }
+        s.spawnTimer = 95 - Math.min(s.frame / 35, 38) + Math.random() * 60;
       }
 
       s.obstacles.forEach((o) => (o.x -= move));
