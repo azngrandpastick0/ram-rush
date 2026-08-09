@@ -148,6 +148,7 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
       elapsed: 0,
       speed: 2.2,
       spawnTimer: 110,
+      groundCooldown: 0,
       fieldOffset: 0,
       totalPixels: 0,
       score: 0,
@@ -224,20 +225,36 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
       const move = s.speed * dtScale;
 
       s.spawnTimer -= dtScale;
+      s.groundCooldown = Math.max(0, s.groundCooldown - dtScale);
       if (s.spawnTimer <= 0) {
-        const type = Math.random() < 0.5 ? "ground" : "aerial";
+        // Ground obstacles move at 2x world speed (see GROUND_SPEED_MULT below), so a ground
+        // obstacle can catch up to and visually collide with a still-approaching aerial one —
+        // forcing an impossible simultaneous jump+slide. Never let a fresh ground obstacle
+        // spawn until any aerial already in play has had time to clear the player at the
+        // current speed (AERIAL_RESOLVE_DIST matches PLAYER_X + AERIAL_HIT below).
+        const AERIAL_RESOLVE_DIST = W + 36 - (PLAYER_X + 41);
+        let type = Math.random() < 0.5 ? "ground" : "aerial";
+        if (type === "ground" && s.groundCooldown > 0) type = "aerial";
+        if (type === "aerial") {
+          s.groundCooldown = Math.max(s.groundCooldown, AERIAL_RESOLVE_DIST / s.speed);
+        }
         s.obstacles.push({
           x: W + 36,
           type,
           resolved: false,
           frameOffset: Math.floor(Math.random() * 5),
         });
-        // ~15% chance of a follow-up obstacle of opposite type (jump-then-slide or vice versa)
-        if (Math.random() < 0.15) {
+        // ~15% chance of a follow-up obstacle behind the leader, for a jump-then-slide
+        // combo. Only ever aerial-follows-ground, never ground-follows-aerial — the
+        // latter's faster ground obstacle would catch the aerial leader before either
+        // reaches the player, same impossible-state risk as above.
+        if (type === "ground" && Math.random() < 0.15) {
           const followGap = 95 + Math.random() * 55; // 95–150px behind, enough time to react
+          const followX = W + 36 + followGap;
+          s.groundCooldown = Math.max(s.groundCooldown, (followX - (PLAYER_X + 41)) / s.speed);
           s.obstacles.push({
-            x: W + 36 + followGap,
-            type: type === "ground" ? "aerial" : "ground",
+            x: followX,
+            type: "aerial",
             resolved: false,
             frameOffset: Math.floor(Math.random() * 5),
           });
