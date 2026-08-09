@@ -248,9 +248,11 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
       s.obstacles.forEach((o) => (o.x -= move));
       s.obstacles = s.obstacles.filter((o) => o.x > -80);
 
-      // Hitbox sized to actual sprite display widths (~23px player half + ~27px defender half)
-      const GROUND_HIT = 44;
-      const AERIAL_HIT = 36;
+      // Hitbox sized to actual sprite display widths (~32px player half + ~47px defender half,
+      // ~32px player half + ~15px football half), discounted ~12% below full geometric overlap
+      // for a bit of player-friendly forgiveness.
+      const GROUND_HIT = 69;
+      const AERIAL_HIT = 41;
 
       for (const o of s.obstacles) {
         if (o.resolved) continue;
@@ -356,16 +358,14 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
         if (o.type === "ground") {
           const defSheet = spritesRef.current.defender_run;
           const DEF_NUM_FRAMES = 5;
-          const DEF_SLOT_W = Math.round(1774 / DEF_NUM_FRAMES); // 355px per slot
-          const DEF_CONTENT_W = 327;                             // actual sprite within slot
-          const DEF_CONTENT_OFFSET = Math.round((DEF_SLOT_W - DEF_CONTENT_W) / 2); // ~14px
-          const DEF_FRAME_H = 887;
-          const DEF_DISP_H = 150; // scaled up from 82 to account for taller source frame
-          const defDispW = Math.round(DEF_CONTENT_W * (DEF_DISP_H / DEF_FRAME_H)); // ~55px
+          const DEF_SLOT_W = 336;  // tight-cropped strip, no padding around the figure
+          const DEF_FRAME_H = 267;
+          const DEF_DISP_H = 75;  // slightly taller than the player for an imposing feel
+          const defDispW = Math.round(DEF_SLOT_W * (DEF_DISP_H / DEF_FRAME_H)); // ~94px
           const distTraveled = W + 36 - o.x;
           const defFrameIdx = Math.floor(distTraveled / 28) % DEF_NUM_FRAMES;
           if (defSheet) {
-            ctx.drawImage(defSheet, defFrameIdx * DEF_SLOT_W + DEF_CONTENT_OFFSET, 0, DEF_CONTENT_W, DEF_FRAME_H, o.x - defDispW / 2, GROUND_Y - DEF_DISP_H, defDispW, DEF_DISP_H);
+            ctx.drawImage(defSheet, defFrameIdx * DEF_SLOT_W, 0, DEF_SLOT_W, DEF_FRAME_H, o.x - defDispW / 2, GROUND_Y - DEF_DISP_H, defDispW, DEF_DISP_H);
           } else {
             ctx.fillStyle = COLORS.royal;
             ctx.fillRect(o.x - 12, GROUND_Y - 40, 24, 40);
@@ -417,32 +417,35 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
         ctx.fill();
       }
 
-      // Player sprite — pick sheet and frame based on current action
-      // All sheets: 1200px wide, 349px tall. Run=6 frames (200px ea), Jump/Slide=5 frames (240px ea)
-      const ANIM_H = 349, DISP_H = 82;
-      let sheet, srcFrameW, numAnimFrames, animFrameIdx;
+      // Player sprite — pick sheet and frame based on current action.
+      // Each sheet is tight-cropped and bottom-aligned (feet at frame bottom) per pose,
+      // so frame sizes differ — one shared pixel scale keeps them physically consistent
+      // (e.g. the slide crouch reads as genuinely shorter, not squashed to run height).
+      const SPRITE_SCALE = 0.2;
+      let sheet, srcFrameW, srcFrameH, numAnimFrames, animFrameIdx;
       if (s.action === "jump") {
         sheet = spritesRef.current.player_jump;
-        srcFrameW = 240; numAnimFrames = 5;
+        srcFrameW = 285; srcFrameH = 347; numAnimFrames = 5;
         const elapsed = JUMP_FRAMES - s.actionTimer;
         animFrameIdx = Math.min(4, Math.floor(elapsed * 5 / JUMP_FRAMES));
       } else if (s.action === "slide") {
         sheet = spritesRef.current.player_slide;
-        srcFrameW = 240; numAnimFrames = 5;
+        srcFrameW = 314; srcFrameH = 237; numAnimFrames = 5;
         const elapsed = SLIDE_FRAMES - s.actionTimer;
         animFrameIdx = Math.min(4, Math.floor(elapsed * 5 / SLIDE_FRAMES));
       } else {
         sheet = spritesRef.current.player_run;
-        srcFrameW = 200; numAnimFrames = 6;
+        srcFrameW = 317; srcFrameH = 354; numAnimFrames = 5;
         animFrameIdx = Math.floor(s.frame / 5) % numAnimFrames;
       }
-      const dispW = Math.round(srcFrameW * (DISP_H / ANIM_H));
+      const dispW = Math.round(srcFrameW * SPRITE_SCALE);
+      const dispH = Math.round(srcFrameH * SPRITE_SCALE);
       const fallback = spritesRef.current.player;
       ctx.save();
       ctx.imageSmoothingEnabled = true;
       ctx.translate(PLAYER_X, playerY);
       if (sheet) {
-        ctx.drawImage(sheet, animFrameIdx * srcFrameW, 0, srcFrameW, ANIM_H, -dispW / 2, -DISP_H, dispW, DISP_H);
+        ctx.drawImage(sheet, animFrameIdx * srcFrameW, 0, srcFrameW, srcFrameH, -dispW / 2, -dispH, dispW, dispH);
       } else if (fallback) {
         ctx.scale(1, squash);
         ctx.drawImage(fallback, -32, -56, 64, 64);
