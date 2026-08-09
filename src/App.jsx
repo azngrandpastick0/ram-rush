@@ -245,7 +245,13 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
         s.spawnTimer = 95 - Math.min(s.frame / 35, 38) + Math.random() * 60;
       }
 
-      s.obstacles.forEach((o) => (o.x -= move));
+      // Ground obstacles close in faster than the shared world speed: at base speed the
+      // defender's hitbox zone otherwise takes ~53 frames to cross vs. a 32-frame jump, so
+      // the safety check resolves while the player is still mid-air and lands back down
+      // right on top of a defender that hasn't visually cleared yet. 2x keeps the crossing
+      // comfortably under the jump duration even at the game's slowest starting speed.
+      const GROUND_SPEED_MULT = 2;
+      s.obstacles.forEach((o) => (o.x -= move * (o.type === "ground" ? GROUND_SPEED_MULT : 1)));
       s.obstacles = s.obstacles.filter((o) => o.x > -80);
 
       // Hitbox sized to actual sprite display widths (~32px player half + ~47px defender half,
@@ -280,8 +286,10 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
       let playerY = GROUND_Y;
       let squash = 1;
       if (s.action === "jump") {
+        // Peak height must clear the defender's head (DEF_DISP_H = 75), not just its
+        // old effectively-tiny broken-sprite height this arc was originally tuned against.
         const progress = 1 - s.actionTimer / JUMP_FRAMES;
-        playerY = GROUND_Y - Math.sin(progress * Math.PI) * 58;
+        playerY = GROUND_Y - Math.sin(progress * Math.PI) * 85;
       }
       if (s.action === "slide") squash = 0.45;
 
