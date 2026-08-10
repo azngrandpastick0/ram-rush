@@ -128,7 +128,7 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
   const LINE_SPACING = 110;
   const JUMP_FRAMES = 32;
   const SLIDE_FRAMES = 30;
-  const AERIAL_Y = GROUND_Y - 80; // football center height — approx player head level
+  const AERIAL_Y = GROUND_Y - 95; // football center height — above player head level
 
   useEffect(() => {
     const BASE = import.meta.env.BASE_URL;
@@ -224,19 +224,39 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
       s.speed = 2.6 + speedTier * 0.35;
       const move = s.speed * dtScale;
 
+      // Ground obstacles close in faster than the shared world speed: at base speed the
+      // defender's hitbox zone otherwise takes ~53 frames to cross vs. a 32-frame jump, so
+      // the safety check resolves while the player is still mid-air and lands back down
+      // right on top of a defender that hasn't visually cleared yet. 2x keeps the crossing
+      // comfortably under the jump duration even at the game's slowest starting speed.
+      const GROUND_SPEED_MULT = 2;
+      // Hitbox sized to actual sprite display widths (~32px player half + ~47px defender half,
+      // ~32px player half + ~15px football half), discounted ~12% below full geometric overlap
+      // for a bit of player-friendly forgiveness.
+      const GROUND_HIT = 69;
+      const AERIAL_HIT = 41;
+
       s.spawnTimer -= dtScale;
       s.groundCooldown = Math.max(0, s.groundCooldown - dtScale);
       if (s.spawnTimer <= 0) {
-        // Ground obstacles move at 2x world speed (see GROUND_SPEED_MULT below), so a ground
-        // obstacle can catch up to and visually collide with a still-approaching aerial one —
-        // forcing an impossible simultaneous jump+slide. Never let a fresh ground obstacle
-        // spawn until any aerial already in play has had time to clear the player at the
-        // current speed (AERIAL_RESOLVE_DIST matches PLAYER_X + AERIAL_HIT below).
-        const AERIAL_RESOLVE_DIST = W + 36 - (PLAYER_X + 41);
+        // Ground obstacles move faster than aerial ones, so a fresh ground obstacle could
+        // catch up to and visually collide with a still-approaching aerial one — forcing an
+        // impossible simultaneous jump+slide. A fresh ground obstacle always spawns at the
+        // same point (W+36), so there's a fixed aerial position — AERIAL_SAFE_X — below
+        // which an aerial poses no risk to any new ground spawn: a ground obstacle starting
+        // now can't reach its own zone before an aerial at or past that point has cleared
+        // its zone first. So each aerial only needs a cooldown long enough to cover its own
+        // spawn-to-AERIAL_SAFE_X distance, not its full transit to the player. (An earlier
+        // version of this used the aerial's full resolve time, which made the cooldown
+        // comparable to the average gap between spawns and chained into long all-aerial
+        // streaks with no ground obstacles at all; a version after that reused this same
+        // AERIAL_SAFE_X math but wrongly re-derived it from the aerial's own spawn point
+        // instead of the fresh ground's, which let real collisions back in for follow-ups.)
+        const AERIAL_SAFE_X = (PLAYER_X - AERIAL_HIT) + (W + 36 - (PLAYER_X + GROUND_HIT)) / GROUND_SPEED_MULT;
         let type = Math.random() < 0.5 ? "ground" : "aerial";
         if (type === "ground" && s.groundCooldown > 0) type = "aerial";
         if (type === "aerial") {
-          s.groundCooldown = Math.max(s.groundCooldown, AERIAL_RESOLVE_DIST / s.speed);
+          s.groundCooldown = Math.max(s.groundCooldown, (W + 36 - AERIAL_SAFE_X) / s.speed);
         }
         s.obstacles.push({
           x: W + 36,
@@ -251,7 +271,7 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
         if (type === "ground" && Math.random() < 0.15) {
           const followGap = 95 + Math.random() * 55; // 95–150px behind, enough time to react
           const followX = W + 36 + followGap;
-          s.groundCooldown = Math.max(s.groundCooldown, (followX - (PLAYER_X + 41)) / s.speed);
+          s.groundCooldown = Math.max(s.groundCooldown, (followX - AERIAL_SAFE_X) / s.speed);
           s.obstacles.push({
             x: followX,
             type: "aerial",
@@ -262,20 +282,8 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
         s.spawnTimer = 95 - Math.min(s.frame / 35, 38) + Math.random() * 60;
       }
 
-      // Ground obstacles close in faster than the shared world speed: at base speed the
-      // defender's hitbox zone otherwise takes ~53 frames to cross vs. a 32-frame jump, so
-      // the safety check resolves while the player is still mid-air and lands back down
-      // right on top of a defender that hasn't visually cleared yet. 2x keeps the crossing
-      // comfortably under the jump duration even at the game's slowest starting speed.
-      const GROUND_SPEED_MULT = 2;
       s.obstacles.forEach((o) => (o.x -= move * (o.type === "ground" ? GROUND_SPEED_MULT : 1)));
       s.obstacles = s.obstacles.filter((o) => o.x > -80);
-
-      // Hitbox sized to actual sprite display widths (~32px player half + ~47px defender half,
-      // ~32px player half + ~15px football half), discounted ~12% below full geometric overlap
-      // for a bit of player-friendly forgiveness.
-      const GROUND_HIT = 69;
-      const AERIAL_HIT = 41;
 
       for (const o of s.obstacles) {
         if (o.resolved) continue;
