@@ -149,6 +149,7 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
       speed: 2.2,
       spawnTimer: 110,
       groundCooldown: 0,
+      busyUntil: 0,
       fieldOffset: 0,
       totalPixels: 0,
       score: 0,
@@ -230,29 +231,38 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
       // right on top of a defender that hasn't visually cleared yet. 2x keeps the crossing
       // comfortably under the jump duration even at the game's slowest starting speed.
       const GROUND_SPEED_MULT = 2;
-      // Hitboxes measured from the sprite sheets' actual opaque-pixel bounds (NOT the
-      // frame slot sizes — the defender slots have big transparent margins), then shrunk
-      // slightly below full visual size for player-friendly forgiveness. An earlier
-      // version used wide x-only thresholds (69/41px) measured against frame widths,
-      // which triggered deaths well before any visible contact.
-      const DEF_HALF_W = 31; // defender visual half-width ≈32px at display scale
+      // Hitboxes are measured from the sprite sheets' actual opaque pixels (NOT the frame
+      // slot sizes — the defender slots carry wide transparent margins, which is what the
+      // original 69/41px thresholds were wrongly derived from and why runs ended with
+      // daylight still showing between the figures).
+      //
+      // Sizes use each sprite's CORE BODY, not its full limb reach: measured across all 5
+      // frames, the running player's silhouette reaches 28px from center at full arm/leg
+      // extension but its body is 22px, and the defender reaches 32px vs. a 26px body.
+      // Killing on limb-tip contact technically counts as touching, but a fingertip grazing
+      // a fingertip doesn't read as a tackle. Using core widths means a kill only fires once
+      // the two figures visibly overlap by roughly a dozen pixels.
+      const DEF_HALF_W = 25; // defender core body (full limb reach 32)
       const DEF_H = 72;      // defender head height (visual 75, minus grace)
-      const BALL_RX = 21;    // football horizontal reach incl. spikes (visual 23)
-      const BALL_RY = 16;    // football vertical reach incl. spikes (visual 18)
-      // The ball flies at run-head height for most of its approach, so its leading
-      // spikes geometrically graze the head corner from the moment the x-windows
-      // touch — a pure overlap test would kill at a 48px gap, even earlier than the
-      // old 41px threshold. Kills are therefore gated to this tighter window (a late
-      // slide stays possible until the ball is visibly into the player), and the
-      // geometric test then confirms real drawn-pixel contact within it.
-      const AERIAL_KILL_W = 38;
+      const BALL_RX = 15;    // football body only — the 9 spikes reach 23px but are thin
+      const BALL_RY = 11;    // decorative points, not lethal surface area on their own
       const PLAYER_BOX = {
-        run: { halfW: 28, h: 66 },
-        jump: { halfW: 24, h: 60 },
-        slide: { halfW: 28, h: 32 },
+        run: { halfW: 22, h: 66 },   // core body (full limb reach 28)
+        jump: { halfW: 20, h: 60 },
+        slide: { halfW: 23, h: 34 },
       };
-      const GROUND_ZONE = PLAYER_BOX.run.halfW + DEF_HALF_W; // x-window for defender checks
-      const AERIAL_ZONE = PLAYER_BOX.run.halfW + BALL_RX;    // x-window for football checks
+      // The football flies at head/shoulder height, where the player is genuinely narrower
+      // than at torso level (measured core half-width 19px in the 52–70px band). Testing the
+      // ball against the full-body width would kill it when the ball is beside the head
+      // rather than on it — the exact phantom in the reported screenshots.
+      const AERIAL_PLAYER_HALF_W = 17;
+      // Resolve windows are deliberately WIDER than the kill geometry: performing the right
+      // dodge anywhere in the approach neutralizes the obstacle, so an action can never
+      // expire into a death while the obstacle is still crossing the player's column. This
+      // decoupling — generous "did you dodge?", strict "did you get hit?" — is what makes
+      // tight hitboxes feel fair rather than twitchy.
+      const GROUND_ZONE = 70; // defender resolve window
+      const AERIAL_ZONE = 55; // football resolve window
       // Parabolic altitude loss over the ball's flight — shared by the collision check
       // and the draw below so the hitbox is always exactly where the ball is rendered.
       const BOB_DROP = 30;
@@ -265,46 +275,82 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
       s.groundCooldown = Math.max(0, s.groundCooldown - dtScale);
       if (s.spawnTimer <= 0) {
         // Ground obstacles move faster than aerial ones, so a fresh ground obstacle could
-        // catch up to and visually collide with a still-approaching aerial one — forcing an
-        // impossible simultaneous jump+slide. A fresh ground obstacle always spawns at the
-        // same point (W+36), so there's a fixed aerial position — AERIAL_SAFE_X — below
-        // which an aerial poses no risk to any new ground spawn: a ground obstacle starting
-        // now can't reach its own zone before an aerial at or past that point has cleared
-        // its zone first. So each aerial only needs a cooldown long enough to cover its own
-        // spawn-to-AERIAL_SAFE_X distance, not its full transit to the player. (An earlier
-        // version of this used the aerial's full resolve time, which made the cooldown
-        // comparable to the average gap between spawns and chained into long all-aerial
-        // streaks with no ground obstacles at all; a version after that reused this same
-        // AERIAL_SAFE_X math but wrongly re-derived it from the aerial's own spawn point
-        // instead of the fresh ground's, which let real collisions back in for follow-ups.)
-        const AERIAL_SAFE_X = (PLAYER_X - AERIAL_ZONE) + (W + 36 - (PLAYER_X + GROUND_ZONE)) / GROUND_SPEED_MULT;
+        // catch up to a still-approaching aerial one — forcing an impossible simultaneous
+        // jump+slide. AERIAL_SAFE_X is the aerial position below which a ground obstacle
+        // spawning right now poses no risk. (An earlier version used the aerial's full
+        // resolve time, which made the cooldown comparable to the average gap between
+        // spawns and chained into long all-aerial streaks; a version after that re-derived
+        // this from the aerial's own spawn point instead of the fresh ground's, which let
+        // real collisions back in for follow-ups.)
+        //
+        // The binding constraint is NOT when the aerial clears its zone — it's when the
+        // player is free to act again. Sliding locks the player for SLIDE_FRAMES, and a
+        // defender closing at 2x can arrive inside that lock. That lock is a fixed number
+        // of FRAMES while the defender's approach shrinks as speed rises, so the safe
+        // distance has to scale with speed: a fixed threshold is comfortably safe at the
+        // opening pace but silently unsafe past speed tier ~7, which is exactly where
+        // "a defender killed me while I was sliding and couldn't jump" reports come from.
+        const groundArrivalFrames =
+          (W + 36 - (PLAYER_X + PLAYER_BOX.run.halfW + DEF_HALF_W)) / (s.speed * GROUND_SPEED_MULT);
+        const AERIAL_SAFE_X =
+          (PLAYER_X + AERIAL_ZONE) + s.speed * (groundArrivalFrames - SLIDE_FRAMES);
         let type = Math.random() < 0.5 ? "ground" : "aerial";
         if (type === "ground" && s.groundCooldown > 0) type = "aerial";
-        if (type === "aerial") {
-          s.groundCooldown = Math.max(s.groundCooldown, (W + 36 - AERIAL_SAFE_X) / s.speed);
-        }
-        s.obstacles.push({
-          x: W + 36,
-          type,
-          resolved: false,
-          frameOffset: Math.floor(Math.random() * 5),
-        });
-        // ~15% chance of a follow-up obstacle behind the leader, for a jump-then-slide
-        // combo. Only ever aerial-follows-ground, never ground-follows-aerial — the
-        // latter's faster ground obstacle would catch the aerial leader before either
-        // reaches the player, same impossible-state risk as above.
-        if (type === "ground" && Math.random() < 0.15) {
-          const followGap = 95 + Math.random() * 55; // 95–150px behind, enough time to react
-          const followX = W + 36 + followGap;
-          s.groundCooldown = Math.max(s.groundCooldown, (followX - AERIAL_SAFE_X) / s.speed);
+
+        // Second, speed-independent guarantee: jumping and sliding each lock the player for
+        // ~half a second, so two obstacles that ARRIVE within one lock of each other are
+        // undodgeable no matter how they were spawned. The cooldown above only reasons about
+        // ground-vs-aerial catch-up; this covers every pairing (including two footballs in a
+        // row, which is what the last unwinnable cases turned out to be). Project when each
+        // obstacle reaches the player and refuse to spawn one that lands inside the previous
+        // obstacle's lock — delay it by the shortfall instead, which nudges the rhythm by a
+        // few frames rather than altering the ground/aerial mix.
+        const REACTION_GAP = 6;
+        const contactX = (t) =>
+          PLAYER_X + (t === "ground" ? PLAYER_BOX.run.halfW + DEF_HALF_W : AERIAL_PLAYER_HALF_W + BALL_RX);
+        const arrivalOf = (x0, t) =>
+          s.frame + (x0 - contactX(t)) / (s.speed * (t === "ground" ? GROUND_SPEED_MULT : 1));
+        const lockOf = (t) => (t === "ground" ? JUMP_FRAMES : SLIDE_FRAMES) + REACTION_GAP;
+
+        const arrival = arrivalOf(W + 36, type);
+        if (arrival < s.busyUntil) {
+          // Too soon after the previous obstacle — wait out the shortfall and retry.
+          s.spawnTimer = Math.max(1, Math.ceil(s.busyUntil - arrival));
+        } else {
+          if (type === "aerial") {
+            s.groundCooldown = Math.max(s.groundCooldown, Math.max(0, (W + 36 - AERIAL_SAFE_X) / s.speed));
+          }
+          s.busyUntil = arrival + lockOf(type);
           s.obstacles.push({
-            x: followX,
-            type: "aerial",
+            x: W + 36,
+            type,
             resolved: false,
             frameOffset: Math.floor(Math.random() * 5),
           });
+          // ~15% chance of a follow-up obstacle behind the leader, for a jump-then-slide
+          // combo. Only ever aerial-follows-ground, never ground-follows-aerial — the
+          // latter's faster ground obstacle would catch the aerial leader before either
+          // reaches the player, same impossible-state risk as above.
+          if (type === "ground" && Math.random() < 0.15) {
+            const followGap = 95 + Math.random() * 55; // 95–150px behind, enough time to react
+            const followX = W + 36 + followGap;
+            const followArrival = arrivalOf(followX, "aerial");
+            // Only lay down the combo if the second half is actually reachable — the
+            // defender is closing at 2x, so at high speed it can arrive and free the
+            // player far too late for the football trailing behind it.
+            if (followArrival >= s.busyUntil) {
+              s.groundCooldown = Math.max(s.groundCooldown, Math.max(0, (followX - AERIAL_SAFE_X) / s.speed));
+              s.busyUntil = followArrival + lockOf("aerial");
+              s.obstacles.push({
+                x: followX,
+                type: "aerial",
+                resolved: false,
+                frameOffset: Math.floor(Math.random() * 5),
+              });
+            }
+          }
+          s.spawnTimer = 95 - Math.min(s.frame / 35, 38) + Math.random() * 60;
         }
-        s.spawnTimer = 95 - Math.min(s.frame / 35, 38) + Math.random() * 60;
       }
 
       s.obstacles.forEach((o) => (o.x -= move * (o.type === "ground" ? GROUND_SPEED_MULT : 1)));
@@ -339,35 +385,36 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
       //    altitude entirely and killed on x-proximity alone.
       for (const o of s.obstacles) {
         if (o.resolved) continue;
+        const gap = Math.abs(o.x - PLAYER_X);
         if (o.type === "ground") {
-          if (Math.abs(o.x - PLAYER_X) < pBox.halfW + DEF_HALF_W) {
-            if (s.action === "jump") {
-              o.resolved = true;
-            } else if (playerY > GROUND_Y - DEF_H) {
+          if (gap > GROUND_ZONE) continue;
+          if (s.action === "jump") {
+            o.resolved = true;             // dodged — this defender can no longer hurt you
+          } else if (gap < pBox.halfW + DEF_HALF_W && playerY > GROUND_Y - DEF_H) {
+            s.dead = true;
+            setFinalScore(s.score);
+            setPhase("over");
+            return;
+          }
+        } else {
+          if (gap > AERIAL_ZONE) continue;
+          if (s.action === "slide") {
+            o.resolved = true;             // dodged — this ball can no longer hurt you
+          } else {
+            // Ellipse-vs-rect overlap against the ball's DRAWN position. The player is
+            // modelled here by head/shoulder width, since that is the height the ball
+            // occupies; a hit means the football body is genuinely on the player.
+            const by = ballCenterY(o.x);
+            const halfW = Math.min(pBox.halfW, AERIAL_PLAYER_HALF_W);
+            const cx = Math.max(PLAYER_X - halfW, Math.min(o.x, PLAYER_X + halfW));
+            const cy = Math.max(pTop, Math.min(by, playerY));
+            const dx = (o.x - cx) / BALL_RX;
+            const dy = (by - cy) / BALL_RY;
+            if (dx * dx + dy * dy < 1) {
               s.dead = true;
               setFinalScore(s.score);
               setPhase("over");
               return;
-            }
-          }
-        } else {
-          if (Math.abs(o.x - PLAYER_X) < pBox.halfW + BALL_RX) {
-            if (s.action === "slide") {
-              o.resolved = true;
-            } else if (Math.abs(o.x - PLAYER_X) < AERIAL_KILL_W) {
-              // Ellipse-vs-rect: closest point on the player box to the ball center,
-              // tested against the ball's (spike-inclusive, slightly shrunk) radii.
-              const by = ballCenterY(o.x);
-              const cx = Math.max(pLeft, Math.min(o.x, pRight));
-              const cy = Math.max(pTop, Math.min(by, playerY));
-              const dx = (o.x - cx) / BALL_RX;
-              const dy = (by - cy) / BALL_RY;
-              if (dx * dx + dy * dy < 1) {
-                s.dead = true;
-                setFinalScore(s.score);
-                setPhase("over");
-                return;
-              }
             }
           }
         }
