@@ -128,7 +128,7 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
   const LINE_SPACING = 110;
   const JUMP_FRAMES = 32;
   const SLIDE_FRAMES = 30;
-  const AERIAL_Y = GROUND_Y - 95; // football center height — above player head level
+  const AERIAL_Y = GROUND_Y - 78; // football center height at spawn — drops toward chest height as it nears the player
 
   useEffect(() => {
     const BASE = import.meta.env.BASE_URL;
@@ -230,11 +230,36 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
       // right on top of a defender that hasn't visually cleared yet. 2x keeps the crossing
       // comfortably under the jump duration even at the game's slowest starting speed.
       const GROUND_SPEED_MULT = 2;
-      // Hitbox sized to actual sprite display widths (~32px player half + ~47px defender half,
-      // ~32px player half + ~15px football half), discounted ~12% below full geometric overlap
-      // for a bit of player-friendly forgiveness.
-      const GROUND_HIT = 69;
-      const AERIAL_HIT = 41;
+      // Hitboxes measured from the sprite sheets' actual opaque-pixel bounds (NOT the
+      // frame slot sizes — the defender slots have big transparent margins), then shrunk
+      // slightly below full visual size for player-friendly forgiveness. An earlier
+      // version used wide x-only thresholds (69/41px) measured against frame widths,
+      // which triggered deaths well before any visible contact.
+      const DEF_HALF_W = 31; // defender visual half-width ≈32px at display scale
+      const DEF_H = 72;      // defender head height (visual 75, minus grace)
+      const BALL_RX = 21;    // football horizontal reach incl. spikes (visual 23)
+      const BALL_RY = 16;    // football vertical reach incl. spikes (visual 18)
+      // The ball flies at run-head height for most of its approach, so its leading
+      // spikes geometrically graze the head corner from the moment the x-windows
+      // touch — a pure overlap test would kill at a 48px gap, even earlier than the
+      // old 41px threshold. Kills are therefore gated to this tighter window (a late
+      // slide stays possible until the ball is visibly into the player), and the
+      // geometric test then confirms real drawn-pixel contact within it.
+      const AERIAL_KILL_W = 38;
+      const PLAYER_BOX = {
+        run: { halfW: 28, h: 66 },
+        jump: { halfW: 24, h: 60 },
+        slide: { halfW: 28, h: 32 },
+      };
+      const GROUND_ZONE = PLAYER_BOX.run.halfW + DEF_HALF_W; // x-window for defender checks
+      const AERIAL_ZONE = PLAYER_BOX.run.halfW + BALL_RX;    // x-window for football checks
+      // Parabolic altitude loss over the ball's flight — shared by the collision check
+      // and the draw below so the hitbox is always exactly where the ball is rendered.
+      const BOB_DROP = 30;
+      const ballCenterY = (x) => {
+        const progress = (W + 36 - x) / (W + 116);
+        return AERIAL_Y + progress * progress * BOB_DROP;
+      };
 
       s.spawnTimer -= dtScale;
       s.groundCooldown = Math.max(0, s.groundCooldown - dtScale);
@@ -252,7 +277,7 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
         // streaks with no ground obstacles at all; a version after that reused this same
         // AERIAL_SAFE_X math but wrongly re-derived it from the aerial's own spawn point
         // instead of the fresh ground's, which let real collisions back in for follow-ups.)
-        const AERIAL_SAFE_X = (PLAYER_X - AERIAL_HIT) + (W + 36 - (PLAYER_X + GROUND_HIT)) / GROUND_SPEED_MULT;
+        const AERIAL_SAFE_X = (PLAYER_X - AERIAL_ZONE) + (W + 36 - (PLAYER_X + GROUND_ZONE)) / GROUND_SPEED_MULT;
         let type = Math.random() < 0.5 ? "ground" : "aerial";
         if (type === "ground" && s.groundCooldown > 0) type = "aerial";
         if (type === "aerial") {
@@ -285,29 +310,7 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
       s.obstacles.forEach((o) => (o.x -= move * (o.type === "ground" ? GROUND_SPEED_MULT : 1)));
       s.obstacles = s.obstacles.filter((o) => o.x > -80);
 
-      for (const o of s.obstacles) {
-        if (o.resolved) continue;
-        const threshold = o.type === "ground" ? GROUND_HIT : AERIAL_HIT;
-        if (Math.abs(o.x - PLAYER_X) < threshold) {
-          const safe = (o.type === "ground" && s.action === "jump") ||
-                       (o.type === "aerial" && s.action === "slide");
-          if (!safe) {
-            s.dead = true;
-            setFinalScore(s.score);
-            setPhase("over");
-            return;
-          } else { o.resolved = true; }
-        }
-      }
-
-      s.totalPixels += move;
-      s.fieldOffset = (s.fieldOffset + move) % LINE_SPACING;
-      const linesSpawned = Math.floor(s.totalPixels / LINE_SPACING);
-
-      s.score = linesSpawned;
-      setScore(s.score);
-
-      // Player Y for this frame
+      // Player position + collision box for this frame (also used by the draw below)
       let playerY = GROUND_Y;
       let squash = 1;
       if (s.action === "jump") {
@@ -317,6 +320,65 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
         playerY = GROUND_Y - Math.sin(progress * Math.PI) * 85;
       }
       if (s.action === "slide") squash = 0.45;
+      const pose = s.action === "jump" ? "jump" : s.action === "slide" ? "slide" : "run";
+      const pBox = PLAYER_BOX[pose];
+      const pTop = playerY - pBox.h;
+      const pLeft = PLAYER_X - pBox.halfW;
+      const pRight = PLAYER_X + pBox.halfW;
+
+      // Collision, two rules:
+      // 1) The correct dodge action anywhere inside the obstacle's x-window resolves it
+      //    immediately — so a slide/jump can never "expire" into a death while an
+      //    already-dodged obstacle is still crossing the player column. (This was the
+      //    main phantom-death report: the 82px aerial window took ~31 frames to cross
+      //    at base speed vs. a 30-frame slide, so a well-timed slide could end 1–2
+      //    frames early and die to a ball visibly past/above the player.)
+      // 2) Otherwise, death requires genuine 2-D overlap with the obstacle's DRAWN
+      //    geometry — the same coordinates the render below uses — so the run can
+      //    never end without visible contact. The old check ignored the ball's
+      //    altitude entirely and killed on x-proximity alone.
+      for (const o of s.obstacles) {
+        if (o.resolved) continue;
+        if (o.type === "ground") {
+          if (Math.abs(o.x - PLAYER_X) < pBox.halfW + DEF_HALF_W) {
+            if (s.action === "jump") {
+              o.resolved = true;
+            } else if (playerY > GROUND_Y - DEF_H) {
+              s.dead = true;
+              setFinalScore(s.score);
+              setPhase("over");
+              return;
+            }
+          }
+        } else {
+          if (Math.abs(o.x - PLAYER_X) < pBox.halfW + BALL_RX) {
+            if (s.action === "slide") {
+              o.resolved = true;
+            } else if (Math.abs(o.x - PLAYER_X) < AERIAL_KILL_W) {
+              // Ellipse-vs-rect: closest point on the player box to the ball center,
+              // tested against the ball's (spike-inclusive, slightly shrunk) radii.
+              const by = ballCenterY(o.x);
+              const cx = Math.max(pLeft, Math.min(o.x, pRight));
+              const cy = Math.max(pTop, Math.min(by, playerY));
+              const dx = (o.x - cx) / BALL_RX;
+              const dy = (by - cy) / BALL_RY;
+              if (dx * dx + dy * dy < 1) {
+                s.dead = true;
+                setFinalScore(s.score);
+                setPhase("over");
+                return;
+              }
+            }
+          }
+        }
+      }
+
+      s.totalPixels += move;
+      s.fieldOffset = (s.fieldOffset + move) % LINE_SPACING;
+      const linesSpawned = Math.floor(s.totalPixels / LINE_SPACING);
+
+      s.score = linesSpawned;
+      setScore(s.score);
 
       // ---- Draw ----
       ctx.clearRect(0, 0, W, H);
@@ -391,26 +453,30 @@ function RamRushGame({ onAttemptDone, attemptNumber, mode = "league" }) {
         if (o.type === "ground") {
           const defSheet = spritesRef.current.defender_run;
           const DEF_NUM_FRAMES = 5;
-          const DEF_SLOT_W = 336;  // tight-cropped strip, no padding around the figure
+          const DEF_SLOT_W = 336;  // slot width — NOT tight-cropped; slots carry transparent margins
           const DEF_FRAME_H = 267;
           const DEF_DISP_H = 75;  // slightly taller than the player for an imposing feel
           const defDispW = Math.round(DEF_SLOT_W * (DEF_DISP_H / DEF_FRAME_H)); // ~94px
           const distTraveled = W + 36 - o.x;
           const defFrameIdx = Math.floor(distTraveled / 28) % DEF_NUM_FRAMES;
+          // The figure is NOT horizontally centered in its sheet slots — its opaque-pixel
+          // center wanders from +15 to -13 display px across the 5 frames (measured from
+          // the sheet's alpha bounds). Blitting slots at o.x therefore made the visible
+          // defender jitter around the coordinate the collision check measures. Offset
+          // each blit so the drawn figure is always centered exactly on o.x.
+          const DEF_CENTER_OFF = [14.9, 2.9, 0.4, -7.7, -13.1];
           if (defSheet) {
-            ctx.drawImage(defSheet, defFrameIdx * DEF_SLOT_W, 0, DEF_SLOT_W, DEF_FRAME_H, o.x - defDispW / 2, GROUND_Y - DEF_DISP_H, defDispW, DEF_DISP_H);
+            ctx.drawImage(defSheet, defFrameIdx * DEF_SLOT_W, 0, DEF_SLOT_W, DEF_FRAME_H, o.x - defDispW / 2 - DEF_CENTER_OFF[defFrameIdx], GROUND_Y - DEF_DISP_H, defDispW, DEF_DISP_H);
           } else {
             ctx.fillStyle = COLORS.royal;
             ctx.fillRect(o.x - 12, GROUND_Y - 40, 24, 40);
           }
         } else {
-          // Spiked football — spins and bobs as it travels, tied to distance like the defender
-          const distTraveled = W + 36 - o.x;
-          const spin = distTraveled * 0.05;
-          // Parabolic drop — falls increasingly as it closes in, like a real pass losing altitude
-          const progress = distTraveled / (W + 116);
-          const bob = progress * progress * 22;
-          ctx.translate(o.x, AERIAL_Y + bob);
+          // Spiked football — spins as it travels, tied to distance like the defender.
+          // Altitude comes from ballCenterY, the same function the collision check uses,
+          // so the drawn ball and its hitbox can never drift apart.
+          const spin = (W + 36 - o.x) * 0.05;
+          ctx.translate(o.x, ballCenterY(o.x));
           ctx.rotate(spin);
           const fRx = 15, fRy = 10;
           ctx.fillStyle = "#6B3A1F";
